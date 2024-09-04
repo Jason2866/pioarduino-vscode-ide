@@ -1,6 +1,6 @@
 {
     "name": "pioarduino Debugger Disassembly",
-    "scopeName": "source.platformio-debug-disassembly",
+    "scopeName": "source.pioarduino-debug-disassembly",
     "patterns": [
         {
             "comment": "Address, bytes and opcode",

@@ -1734,6 +1734,6 @@
 		</dict>
 	</dict>
 	<key>scopeName</key>
-	<string>source.platformio-debug-asm</string>
+	<string>source.pioarduino-debug-asm</string>
 </dict>
 </plist>
