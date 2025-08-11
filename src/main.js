@@ -175,8 +175,12 @@ class PlatformIOVSCodeExtension {
         });
         try {
           return !(await im.check());
-        } catch (err) {}
-        return true;
+        } catch (err) {
+          // In case of network errors or other issues, assume an existing installation is OK
+          // and no installation is required
+          console.warn('Installation check failed:', err);
+          return false; // No installation required
+        }
       },
     );
 
