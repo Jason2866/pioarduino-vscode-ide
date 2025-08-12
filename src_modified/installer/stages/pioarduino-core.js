@@ -14,7 +14,6 @@ import { findPythonExecutable, installPortablePython } from '../get-python';
 import BaseStage from './base';
 import { callInstallerScript } from '../get-pioarduino';
 import { promises as fs } from 'fs';
-import os from 'os';
 import path from 'path';
 
 export default class pioarduinoCoreStage extends BaseStage {
@@ -105,34 +104,63 @@ export default class pioarduinoCoreStage extends BaseStage {
 
   async checkLocalPioInstallation() {
     try {
-      const pioarduinoDir = path.join(os.homedir(), '.platformio');
-      const penvDir = path.join(pioarduinoDir, 'penv');
-      
-      // Check if .platformio/penv directory exists
-      await fs.access(penvDir);
-      
-      // Try to find pio executable in different locations
-      const pioExecutablePaths = [
-        path.join(penvDir, 'bin', 'pio'),           // Unix/macOS
-        path.join(penvDir, 'Scripts', 'pio.exe'),   // Windows
-        path.join(penvDir, 'bin', 'platformio'),    // Alternative Unix name
-        path.join(penvDir, 'Scripts', 'platformio.exe'), // Alternative Windows name
-      ];
+      // Check multiple possible PlatformIO installation locations
+      const possiblePlatformIODirs = [
+        // Primary location (respects PLATFORMIO_CORE_DIR env var)
+        core.getCoreDir(),
+        // System-wide installations
+        '/usr/local/platformio',
+        '/opt/platformio',
+        // Windows program files
+        path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'PlatformIO'),
+        path.join(process.env.PROGRAMFILES_X86 || 'C:\\Program Files (x86)', 'PlatformIO'),
+        // macOS Applications
+        '/Applications/PlatformIO.app/Contents/Resources',
+      ].filter(Boolean); // Remove undefined values
       
       let foundExecutable = false;
-      for (const execPath of pioExecutablePaths) {
+      let foundPlatformIODir = null;
+      
+      for (const pioarduinoDir of possiblePlatformIODirs) {
         try {
-          await fs.access(execPath);
-          foundExecutable = true;
-          console.info('Found pioarduino executable at:', execPath);
-          break;
+          const penvDir = path.join(pioarduinoDir, 'penv');
+          
+          // Check if .platformio/penv directory exists
+          await fs.access(penvDir);
+          
+          // Try to find pio executable in different locations
+          const pioExecutablePaths = [
+            path.join(penvDir, 'bin', 'pio'),           // Unix/macOS
+            path.join(penvDir, 'Scripts', 'pio.exe'),   // Windows
+            path.join(penvDir, 'bin', 'platformio'),    // Alternative Unix name
+            path.join(penvDir, 'Scripts', 'platformio.exe'), // Alternative Windows name
+          ];
+          
+          let executableFound = false;
+          for (const execPath of pioExecutablePaths) {
+            try {
+              await fs.access(execPath);
+              executableFound = true;
+              console.info('Found pioarduino executable at:', execPath);
+              break;
+            } catch (err) {
+              // Continue checking other paths
+            }
+          }
+          
+          if (executableFound) {
+            foundExecutable = true;
+            foundPlatformIODir = pioarduinoDir;
+            break; // Exit the outer loop when we found a working installation
+          }
         } catch (err) {
-          // Continue checking other paths
+          // This directory doesn't exist or is not accessible, try next
+          continue;
         }
       }
       
       if (!foundExecutable) {
-        console.warn('pioarduino penv directory exists but no executable found');
+        console.warn('No PlatformIO installation found in any of the checked locations');
         return false;
       }
       
@@ -147,8 +175,7 @@ export default class pioarduinoCoreStage extends BaseStage {
       }
       
       console.info('Local pioarduino installation found:', {
-        pioarduinoDir,
-        penvDir,
+        pioarduinoDir: foundPlatformIODir,
         hasExecutable: foundExecutable,
         useBuiltinCore: this.params.useBuiltinPIOCore
       });
