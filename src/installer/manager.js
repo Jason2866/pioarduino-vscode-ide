@@ -83,7 +83,7 @@ export default class InstallationManager {
   async check() {
     // Create stages if needed
     this.createStages();
-    
+
     let result = true;
     for (const stage of this.stages) {
       try {
@@ -101,7 +101,7 @@ export default class InstallationManager {
   async install(progress) {
     // Ensure stages are created
     this.createStages();
-    
+
     const stageIncrementTotal = 100 / this.stages.length;
     // shutdown all PIO Home servers which block python.exe on Windows
     await PIOHome.shutdownAllServers();
