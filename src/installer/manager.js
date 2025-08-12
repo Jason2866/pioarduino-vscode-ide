@@ -76,11 +76,40 @@ export default class InstallationManager {
           result = false;
         }
       } catch (err) {
+        // Check if this is a network-related error and we have a local installation
+        if (this.isNetworkError(err) && (await this.hasLocalInstallation())) {
+          console.warn(
+            'Network error during check, but local installation found:',
+            err,
+          );
+          continue; // Skip this stage, assume it's OK
+        }
         result = false;
         console.warn(err);
       }
     }
     return result;
+  }
+
+  isNetworkError(error) {
+    const networkErrorCodes = ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET'];
+    const errorString = error.toString().toLowerCase();
+    return (
+      networkErrorCodes.some((code) => errorString.includes(code.toLowerCase())) ||
+      errorString.includes('fetch') ||
+      errorString.includes('network') ||
+      errorString.includes('internet')
+    );
+  }
+
+  async hasLocalInstallation() {
+    try {
+      // Try to check if PIO Core is locally available without network access
+      const pioVersion = await pioNodeHelpers.core.getVersion();
+      return pioVersion !== null;
+    } catch (err) {
+      return false;
+    }
   }
 
   async install(progress) {
