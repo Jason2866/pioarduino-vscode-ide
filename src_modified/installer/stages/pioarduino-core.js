@@ -111,20 +111,51 @@ export default class pioarduinoCoreStage extends BaseStage {
       // Check if .platformio/penv directory exists
       await fs.access(penvDir);
       
-      // Check if we have the builtin core directory
+      // Try to find pio executable in different locations
+      const pioExecutablePaths = [
+        path.join(penvDir, 'bin', 'pio'),           // Unix/macOS
+        path.join(penvDir, 'Scripts', 'pio.exe'),   // Windows
+        path.join(penvDir, 'bin', 'platformio'),    // Alternative Unix name
+        path.join(penvDir, 'Scripts', 'platformio.exe'), // Alternative Windows name
+      ];
+      
+      let foundExecutable = false;
+      for (const execPath of pioExecutablePaths) {
+        try {
+          await fs.access(execPath);
+          foundExecutable = true;
+          console.info('Found pioarduino executable at:', execPath);
+          break;
+        } catch (err) {
+          // Continue checking other paths
+        }
+      }
+      
+      if (!foundExecutable) {
+        console.warn('pioarduino penv directory exists but no executable found');
+        return false;
+      }
+      
+      // For builtin core, also check core directory (but don't fail if missing)
       if (this.params.useBuiltinPIOCore) {
-        await fs.access(core.getEnvBinDir());
+        try {
+          await fs.access(core.getEnvBinDir());
+          console.info('Builtin core directory also found:', core.getEnvBinDir());
+        } catch (err) {
+          console.info('Builtin core not found, but global installation is sufficient');
+        }
       }
       
       console.info('Local pioarduino installation found:', {
         pioarduinoDir,
         penvDir,
-        coreDir: this.params.useBuiltinPIOCore ? core.getEnvBinDir() : 'global'
+        hasExecutable: foundExecutable,
+        useBuiltinCore: this.params.useBuiltinPIOCore
       });
       
       return true;
     } catch (err) {
-      // Silent fail for local check
+      // console.debug('Local pioarduino check failed:', err.message);
       return false;
     }
   }
@@ -179,14 +210,14 @@ export default class pioarduinoCoreStage extends BaseStage {
     const coreState = core.getCoreState();
     try {
       await fs.access(builtInPythonDir);
-      if (!coreState.python_version.startsWith('3.9.')) {
-        throw new Error('Not 3.9 Python in penv');
+      if (!coreState.python_version.startsWith('3.10.') && !coreState.python_version.startsWith('3.11.') && !coreState.python_version.startsWith('3.12.') && !coreState.python_version.startsWith('3.13.')) {
+        throw new Error('Not Python 3.10+ in penv');
       }
       const pkgVersion = (
         await misc.loadJSON(path.join(builtInPythonDir, 'package.json'))
       ).version;
-      if (!pkgVersion.startsWith('1.309')) {
-        throw new Error('Not 3.9 Python package');
+      if (!pkgVersion.startsWith('1.310')) {
+        throw new Error('Not Python 3.10+ package');
       }
     } catch (err) {
       return false;
@@ -229,7 +260,7 @@ export default class pioarduinoCoreStage extends BaseStage {
 
     this.status = BaseStage.STATUS_FAILED;
     throw new Error(
-      'Can not find Python Interpreter. Please install Python 3.6 or above manually',
+      'Can not find Python Interpreter. Please install Python 3.10 or above manually',
     );
   }
 

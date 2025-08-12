@@ -13,7 +13,6 @@ import * as tar from 'tar';
 import { callInstallerScript } from './get-pioarduino';
 import fs from 'fs';
 import got from 'got';
-import os from 'os';
 import path from 'path';
 import { promisify } from 'util';
 import semver from 'semver';
@@ -110,8 +109,42 @@ export async function findPythonExecutable() {
     return localPython;
   }
   
-  // Fallback to original network-based check
-  return await findPythonExecutableNetwork();
+  // Try network-based check for existing installations
+  const networkPython = await findPythonExecutableNetwork();
+  if (networkPython) {
+    return networkPython;
+  }
+  
+  // If no suitable Python found, try to install portable Python
+  console.info('No suitable Python 3.10+ installation found. Attempting to install portable Python...');
+  try {
+    const portablePythonDir = path.join(core.getCoreDir(), 'python3');
+    await installPortablePython(portablePythonDir);
+    
+    // Verify the portable Python installation
+    const portablePythonExe = proc.IS_WINDOWS 
+      ? path.join(portablePythonDir, 'python.exe')
+      : path.join(portablePythonDir, 'bin', 'python3');
+    
+    if (fs.existsSync(portablePythonExe)) {
+      console.info(`Successfully installed portable Python at: ${portablePythonExe}`);
+      return portablePythonExe;
+    }
+  } catch (err) {
+    console.error('Failed to install portable Python:', err.message);
+  }
+  
+  // Final failure message
+  const platformSpecificInstructions = proc.IS_WINDOWS 
+    ? 'Download Python 3.13 from https://www.python.org/downloads/ and make sure to check "Add Python to PATH" during installation.'
+    : process.platform === 'darwin'
+      ? 'Install Python 3.13 via Homebrew: "brew install python@3.13" or download from https://www.python.org/downloads/'
+      : 'Install Python 3.13 via package manager: "sudo apt install python3.13" (Ubuntu/Debian) or "sudo dnf install python3.13" (Fedora/RHEL)';
+  
+  throw new Error(
+    'No suitable Python interpreter found and portable Python installation failed. ' +
+    `Please install Python 3.13 (latest version) manually. ${platformSpecificInstructions}`
+  );
 }
 
 export async function findPythonExecutableLocal() {
@@ -142,11 +175,23 @@ export async function findPythonExecutableNetwork() {
     for (const exename of exenames) {
       const executable = path.normalize(path.join(location, exename)).replace(/"/g, '');
       try {
-        if (
-          fs.existsSync(executable) &&
-          (await callInstallerScript(executable, ['check', 'python']))
-        ) {
-          return executable;
+        if (fs.existsSync(executable)) {
+          // Check Python version first (local command, no network required)
+          const versionCheck = await proc.getCommandOutput(executable, ['-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")']);
+          const version = versionCheck.trim();
+          const versionParts = version.split('.');
+          const major = parseInt(versionParts[0]);
+          const minor = parseInt(versionParts[1]);
+          
+          if (major < 3 || (major === 3 && minor < 10)) {
+            console.warn(`Python ${version} found at ${executable}, but Python 3.10+ is required`);
+            continue;
+          }
+          
+          // If version is OK, check pioarduino compatibility
+          if (await callInstallerScript(executable, ['check', 'python'])) {
+            return executable;
+          }
         }
       } catch (err) {
         console.warn(executable, err);
@@ -224,20 +269,6 @@ async function getRegistryFile() {
 }
 
 function isVersionSystemCompatible(version, systype) {
-  // ignore Python >=3.9 on <= Win7
-  try {
-    const originVersion = parseInt(version.name.split('.')[1]);
-    if (
-      proc.IS_WINDOWS &&
-      originVersion >= 30900 &&
-      semver.satisfies(os.release(), '<=6.1')
-    ) {
-      return false;
-    }
-  } catch (err) {
-    console.warn(err);
-  }
-
   for (const item of version.files) {
     if (item.system.includes(systype)) {
       return true;
