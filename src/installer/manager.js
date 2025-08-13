@@ -119,10 +119,14 @@ export default class InstallationManager {
   destroy() {
     if (this.stages) {
       for (const stage of this.stages) {
-        if (stage && stage.destroy) {
-          stage.destroy();
+        try {
+          if (stage && typeof stage.destroy === 'function') {
+            stage.destroy();
+          }
+        } catch (err) {
         }
       }
     }
+    this.stages = null;
   }
 }
