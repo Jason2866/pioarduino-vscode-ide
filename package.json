@@ -886,7 +886,7 @@
     "@vscode/vsce": "~3.2.1",
     "eslint": "^8",
     "eslint-import-resolver-webpack": "~0.13.10",
-    "eslint-plugin-import": "~2.31.0",
+    "eslint-plugin-import": "^2.32.0",
     "prettier": "~3.4.2",
     "webpack": "~5.97.1",
     "webpack-cli": "~6.0.1"

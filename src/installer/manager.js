@@ -123,8 +123,7 @@ export default class InstallationManager {
           if (stage && typeof stage.destroy === 'function') {
             stage.destroy();
           }
-        } catch (err) {
-        }
+        } catch (err) {}
       }
     }
     this.stages = null;
