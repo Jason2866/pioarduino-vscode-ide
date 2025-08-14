@@ -92,7 +92,7 @@ export default class InstallationManager {
         }
       } catch (err) {
         result = false;
-        console.warn(err);
+        console.warn('Installation stage check failed:', err.message || err);
       }
     }
     return result;
