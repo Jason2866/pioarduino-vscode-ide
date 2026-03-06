@@ -1,3 +1,3 @@
 # Release Notes
 
-## Initial release of pioarduino 1.0.0 based on platformio-vscode-ide 3.3.3
+## pioarduino 1.1.6 with platformio plugin detection
