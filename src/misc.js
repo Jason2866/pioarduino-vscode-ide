@@ -120,16 +120,14 @@ export async function checkConflictingPlatformIOExtension() {
       'workbench.extensions.action.disableExtension',
       'platformio.platformio-ide',
     );
-    vscode.window
-      .showInformationMessage(
-        'PlatformIO IDE has been disabled. Please reload the window.',
-        'Reload Now',
-      )
-      .then((action) => {
-        if (action === 'Reload Now') {
-          vscode.commands.executeCommand('workbench.action.reloadWindow');
-        }
-      });
+    const action = await vscode.window.showInformationMessage(
+      'PlatformIO IDE has been disabled. Please reload the window.',
+      'Reload Now',
+    );
+    if (action === 'Reload Now') {
+      await vscode.commands.executeCommand('workbench.action.reloadWindow');
+      return false;
+    }
     return true;
   } else {
     await vscode.commands.executeCommand(
