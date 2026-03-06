@@ -113,7 +113,7 @@ export async function checkConflictingPlatformIOExtension() {
 
   if (selected.id === 'pioarduino') {
     await vscode.commands.executeCommand(
-      'workbench.extensions.disableAutoUpdate',
+      'workbench.extensions.action.disableAutoUpdate',
       'platformio.platformio-ide',
     );
     await vscode.commands.executeCommand(
