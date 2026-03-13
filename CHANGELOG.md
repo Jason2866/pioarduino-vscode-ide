@@ -4,7 +4,7 @@ All notable changes to the **pioarduino IDE** VSCode extension are documented in
 
 ---
 
-## [1.1.7] - 2026-03-13
+## [1.2.7] - 2026-03-13
 
 ### 📦 Dependencies
 
@@ -12,7 +12,7 @@ All notable changes to the **pioarduino IDE** VSCode extension are documented in
 
 ---
 
-## [1.1.6] - 2026-03-06
+## [1.2.6] - 2026-03-06
 
 ### 🚀 Features
 
@@ -25,13 +25,14 @@ All notable changes to the **pioarduino IDE** VSCode extension are documented in
 
 ---
 
-## [1.1.5] - 2025-10-17
+## [1.2.5] - 2025-10-17
 
-### 🔧 Maintenance
+### 🔧 Initial VSCodium release
 
 - Bumped version and updated dependencies in `package.json`
 
 ---
+
 
 ## [1.1.4] - 2025-10-13
 
