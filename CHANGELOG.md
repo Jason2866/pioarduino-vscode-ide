@@ -33,7 +33,6 @@ All notable changes to the **pioarduino IDE** VSCode extension are documented in
 
 ---
 
-
 ## [1.1.4] - 2025-10-13
 
 ### 🐛 Bug Fixes
