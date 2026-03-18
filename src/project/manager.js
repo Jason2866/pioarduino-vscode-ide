@@ -8,8 +8,13 @@
 
 import * as pioNodeHelpers from 'pioarduino-node-helpers';
 import * as projectHelpers from './helpers';
-
 import { disposeSubscriptions, notifyError } from '../utils';
+import {
+  ensureClangdArgs,
+  fixupCompileCommands,
+  getActiveBackend,
+  notifyRescanBackend,
+} from '../intellisense';
 import { ProjectConfigLanguageProvider } from './config';
 import ProjectTaskManager from './tasks';
 import ProjectTestManager from './tests';
@@ -31,7 +36,8 @@ export default class ProjectManager {
     this._configChangedTimeout = undefined;
 
     this._pool = new pioNodeHelpers.project.ProjectPool({
-      ide: 'vscode',
+      ide: getActiveBackend().indexerIde,
+      intelliSenseBackend: getActiveBackend(),
       api: {
         logOutputChannel: this._logOutputChannel,
         createFileSystemWatcher: vscode.workspace.createFileSystemWatcher,
@@ -83,6 +89,11 @@ export default class ProjectManager {
           );
         },
         onDidNotifyError: notifyError.bind(this),
+        onDidRebuildIndex: async (projectDir) => {
+          await fixupCompileCommands(projectDir);
+          await ensureClangdArgs(projectDir);
+          notifyRescanBackend();
+        },
       },
       settings: {
         autoPreloadEnvTasks: extension.getConfiguration('autoPreloadEnvTasks'),
@@ -227,6 +238,7 @@ export default class ProjectManager {
     ) {
       disposeSubscriptions(this.internalSubscriptions);
       await this._pool.switch(projectDir);
+      await ensureClangdArgs(projectDir);
       this._taskManager = new ProjectTaskManager(projectDir, observer);
       this.internalSubscriptions.push(
         this._taskManager,
