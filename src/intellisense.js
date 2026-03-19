@@ -17,19 +17,24 @@ import path from 'path';
 import vscode from 'vscode';
 
 /**
- * Tokenize a shell command string, respecting single quotes, double quotes,
- * and backslash escapes.  Empty quoted strings (e.g. "" or '') produce an
- * empty-string token so they are not silently dropped.
+ * Tokenize a shell command string into an argv array.
+ *
+ * On POSIX this follows GNU shell rules (backslash escapes, single & double
+ * quotes).  On Windows backslashes are NOT treated as escape characters so
+ * that paths like C:\SDK\include survive intact – matching the behaviour of
+ * LLVM's TokenizeWindowsCommandLine.
+ *
+ * Empty quoted strings ("" or '') produce an empty-string token.
  */
 function shellTokenize(cmd) {
   const tokens = [];
   let current = '';
-  let hasContent = false; // true when we've seen quotes (even if empty)
+  let hasContent = false;
   let inSingle = false;
   let inDouble = false;
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
-    if (ch === '\\' && !inSingle && i + 1 < cmd.length) {
+    if (!IS_WINDOWS && ch === '\\' && !inSingle && i + 1 < cmd.length) {
       current += cmd[++i];
       hasContent = true;
     } else if (ch === "'" && !inDouble) {
@@ -55,22 +60,37 @@ function shellTokenize(cmd) {
   return tokens;
 }
 
+/** Include-path flags that accept a directory argument (longest first). */
+const INCLUDE_FLAGS = ['-idirafter', '-isystem', '-iquote', '-I'];
+
 /**
- * Join tokens back into a shell command, quoting tokens that contain spaces
- * or special characters.  Internal double-quotes and backslashes are escaped.
+ * Convert relative include-path arguments to absolute.
+ * Handles both joined (-Ipath) and separated (-I path) forms for every flag
+ * in INCLUDE_FLAGS.
  */
-function shellJoin(tokens) {
-  return tokens
-    .map((t) => {
-      if (t.length === 0) {
-        return '""';
+function absolutizeIncludes(args, dir) {
+  for (let i = 1; i < args.length; i++) {
+    const a = args[i];
+    // Separated form: flag <path>
+    const separatedMatch = INCLUDE_FLAGS.find((f) => a === f);
+    if (separatedMatch && i + 1 < args.length) {
+      if (!path.isAbsolute(args[i + 1])) {
+        args[i + 1] = path.join(dir, args[i + 1]);
       }
-      if (!/[ "\\]/.test(t)) {
-        return t;
+      i++;
+      continue;
+    }
+    // Joined form: flag<path> (match longest prefix first)
+    for (const flag of INCLUDE_FLAGS) {
+      if (a.startsWith(flag) && a.length > flag.length) {
+        const v = a.slice(flag.length);
+        if (!path.isAbsolute(v)) {
+          args[i] = flag + path.join(dir, v);
+        }
+        break;
       }
-      return `"${t.replace(/[\\"]/g, '\\$&')}"`;
-    })
-    .join(' ');
+    }
+  }
 }
 
 function getPlatformIOCoreDir() {
@@ -218,40 +238,27 @@ export async function fixupCompileCommands(projectDir) {
     }
     existingFiles.add(entry.file);
 
-    if (!entry.command) {
+    if (!entry.command && !entry.arguments) {
       continue;
     }
 
-    const parts = shellTokenize(entry.command);
+    const args = entry.arguments || shellTokenize(entry.command);
 
     // 1. Resolve bare compiler name
-    const compiler = parts[0];
+    const compiler = args[0];
     if (compiler && !compiler.includes('/') && !compiler.includes('\\')) {
       const resolved = await resolveCompiler(compiler);
       if (resolved) {
-        parts[0] = resolved;
+        args[0] = resolved;
       }
     }
 
-    // 2. Convert relative -I paths to absolute
-    for (let i = 1; i < parts.length; i++) {
-      const raw = parts[i];
-      if (raw === '-I' && i + 1 < parts.length && !parts[i + 1].startsWith('-')) {
-        // Space-separated form: -I <path>
-        if (!path.isAbsolute(parts[i + 1])) {
-          parts[i + 1] = path.join(dir, parts[i + 1]);
-        }
-        i++; // skip the path token
-      } else if (raw.startsWith('-I') && raw.length > 2) {
-        // Combined form: -I<path>
-        const incPath = raw.slice(2);
-        if (!path.isAbsolute(incPath)) {
-          parts[i] = `-I${path.join(dir, incPath)}`;
-        }
-      }
-    }
+    // 2. Convert relative include paths to absolute
+    absolutizeIncludes(args, dir);
 
-    entry.command = shellJoin(parts);
+    // Write back as arguments array (preferred by clangd, avoids quoting issues)
+    entry.arguments = args;
+    delete entry.command;
   }
 
   // 3. Add synthetic entries for project header/source files that aren't in
@@ -265,7 +272,7 @@ export async function fixupCompileCommands(projectDir) {
   const projectSrcEntries = entries.filter(
     (e) =>
       e.file &&
-      e.command &&
+      (e.arguments || e.command) &&
       e.file.startsWith(projectDir) &&
       !e.file.includes(pioBuildDir) &&
       !e.file.includes(pioCoreDir),
@@ -275,7 +282,8 @@ export async function fixupCompileCommands(projectDir) {
   let templateEntry = projectSrcEntries[0];
   let maxIncludes = 0;
   for (const e of projectSrcEntries) {
-    const count = (e.command.match(/-I/g) || []).length;
+    const args = e.arguments || [];
+    const count = args.filter((a) => INCLUDE_FLAGS.some((f) => a.startsWith(f))).length;
     if (count > maxIncludes) {
       maxIncludes = count;
       templateEntry = e;
@@ -283,8 +291,19 @@ export async function fixupCompileCommands(projectDir) {
   }
 
   if (templateEntry) {
-    const templateCmd = templateEntry.command.replace(/\s-o\s+\S+/, ' -o /dev/null');
+    const templateArgs = templateEntry.arguments || shellTokenize(templateEntry.command);
+    // Remove -o <output> from template and replace the source file
+    const filteredArgs = [];
+    for (let i = 0; i < templateArgs.length; i++) {
+      if (templateArgs[i] === '-o' && i + 1 < templateArgs.length) {
+        filteredArgs.push('-o', IS_WINDOWS ? 'NUL' : '/dev/null');
+        i++; // skip original output path
+      } else {
+        filteredArgs.push(templateArgs[i]);
+      }
+    }
     const templateDir = templateEntry.directory;
+    const templateFile = templateEntry.file;
 
     const allProjectFiles = await walkDir(projectDir);
     const syntheticEntries = [];
@@ -293,9 +312,10 @@ export async function fixupCompileCommands(projectDir) {
       if (existingFiles.has(file)) {
         continue;
       }
+      const syntheticArgs = filteredArgs.map((a) => (a === templateFile ? file : a));
       syntheticEntries.push({
         directory: templateDir,
-        command: templateCmd.replace(templateEntry.file, file),
+        arguments: syntheticArgs,
         file,
       });
     }
