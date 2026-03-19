@@ -4,7 +4,6 @@ All notable changes to the **pioarduino IDE** VSCode extension are documented in
 
 ---
 
-<<<<<<< clangd
 ## [1.3.0] - 2026-03-19
 
 ### 🚀 Features
@@ -35,8 +34,6 @@ All notable changes to the **pioarduino IDE** VSCode extension are documented in
 
 ---
 
-=======
->>>>>>> pioarduino
 ## [1.1.7] - 2026-03-13
 
 ### 📦 Dependencies
