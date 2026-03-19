@@ -347,7 +347,7 @@ export async function ensureClangdArgs(projectDir) {
   // can't resolve system headers for embedded targets like xtensa, arm, riscv.
   const pioDir = getPlatformIOCoreDir();
   const sep = IS_WINDOWS ? '\\' : '/';
-  const glob = IS_WINDOWS ? '*\\*' : '*/bin/*';
+  const glob = IS_WINDOWS ? '*\\bin\\*' : '*/bin/*';
   const queryDriverGlob = [
     `${pioDir}${sep}packages${sep}toolchain-${glob}`,
     `${pioDir}${sep}packages${sep}tool-${glob}`,

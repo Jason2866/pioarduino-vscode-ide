@@ -93,7 +93,7 @@ export default class ProjectManager {
         onDidRebuildIndex: async (projectDir) => {
           await fixupCompileCommands(projectDir);
           await ensureClangdArgs(projectDir);
-          notifyRescanBackend();
+          await notifyRescanBackend();
         },
       },
       settings: {
