@@ -17,40 +17,59 @@ import path from 'path';
 import vscode from 'vscode';
 
 /**
- * Tokenize a shell command string, respecting single and double quotes.
+ * Tokenize a shell command string, respecting single quotes, double quotes,
+ * and backslash escapes.  Empty quoted strings (e.g. "" or '') produce an
+ * empty-string token so they are not silently dropped.
  */
 function shellTokenize(cmd) {
   const tokens = [];
   let current = '';
+  let hasContent = false; // true when we've seen quotes (even if empty)
   let inSingle = false;
   let inDouble = false;
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
-    if (ch === "'" && !inDouble) {
+    if (ch === '\\' && !inSingle && i + 1 < cmd.length) {
+      current += cmd[++i];
+      hasContent = true;
+    } else if (ch === "'" && !inDouble) {
       inSingle = !inSingle;
+      hasContent = true;
     } else if (ch === '"' && !inSingle) {
       inDouble = !inDouble;
+      hasContent = true;
     } else if (ch === ' ' && !inSingle && !inDouble) {
-      if (current.length > 0) {
+      if (current.length > 0 || hasContent) {
         tokens.push(current);
         current = '';
+        hasContent = false;
       }
     } else {
       current += ch;
+      hasContent = true;
     }
   }
-  if (current.length > 0) {
+  if (current.length > 0 || hasContent) {
     tokens.push(current);
   }
   return tokens;
 }
 
 /**
- * Join tokens back into a shell command, quoting tokens that contain spaces.
+ * Join tokens back into a shell command, quoting tokens that contain spaces
+ * or special characters.  Internal double-quotes and backslashes are escaped.
  */
 function shellJoin(tokens) {
   return tokens
-    .map((t) => (t.includes(' ') ? `"${t}"` : t))
+    .map((t) => {
+      if (t.length === 0) {
+        return '""';
+      }
+      if (!/[ "\\]/.test(t)) {
+        return t;
+      }
+      return `"${t.replace(/[\\"]/g, '\\$&')}"`;
+    })
     .join(' ');
 }
 
@@ -217,9 +236,16 @@ export async function fixupCompileCommands(projectDir) {
     // 2. Convert relative -I paths to absolute
     for (let i = 1; i < parts.length; i++) {
       const raw = parts[i];
-      if (raw.startsWith('-I')) {
+      if (raw === '-I' && i + 1 < parts.length && !parts[i + 1].startsWith('-')) {
+        // Space-separated form: -I <path>
+        if (!path.isAbsolute(parts[i + 1])) {
+          parts[i + 1] = path.join(dir, parts[i + 1]);
+        }
+        i++; // skip the path token
+      } else if (raw.startsWith('-I') && raw.length > 2) {
+        // Combined form: -I<path>
         const incPath = raw.slice(2);
-        if (incPath && !path.isAbsolute(incPath)) {
+        if (!path.isAbsolute(incPath)) {
           parts[i] = `-I${path.join(dir, incPath)}`;
         }
       }
