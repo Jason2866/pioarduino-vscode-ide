@@ -25,7 +25,7 @@ Switch between them in your settings:
 }
 ```
 
-For details on how each backend works, platform-specific behaviour, and troubleshooting, see the [IntelliSense documentation](docs/intellisense.md).
+For details on how each backend works, platform-specific behaviour, and troubleshooting, see the [IntelliSense documentation](docs/intellisense.md). For the full end-to-end data flow — from project activation through PlatformIO CLI to language server — see the [IntelliSense Pipeline](docs/intellisense-pipeline.md).
 
 
 ## License
