@@ -6,6 +6,7 @@
  * the root directory of this source tree.
  */
 
+import * as pioNodeHelpers from 'pioarduino-node-helpers';
 import {
   INTELLISENSE_BACKENDS,
   IS_WINDOWS,
@@ -93,13 +94,6 @@ function absolutizeIncludes(args, dir) {
   }
 }
 
-function getPlatformIOCoreDir() {
-  return (
-    process.env.PLATFORMIO_CORE_DIR ||
-    path.join(process.env.HOME || process.env.USERPROFILE || '~', '.platformio')
-  );
-}
-
 export function getActiveBackendId() {
   return extension.getConfiguration('intelliSenseEngine') || 'cpptools';
 }
@@ -177,7 +171,7 @@ export async function fixupCompileCommands(projectDir) {
   }
 
   const resolveCache = new Map();
-  const packagesDir = path.join(getPlatformIOCoreDir(), 'packages');
+  const packagesDir = path.join(pioNodeHelpers.core.getCoreDir(), 'packages');
 
   async function resolveCompiler(bare) {
     if (resolveCache.has(bare)) {
@@ -291,7 +285,8 @@ export async function fixupCompileCommands(projectDir) {
   }
 
   if (templateEntry) {
-    const templateArgs = templateEntry.arguments || shellTokenize(templateEntry.command);
+    const templateArgs =
+      templateEntry.arguments || shellTokenize(templateEntry.command);
     // Remove -o <output> from template and replace the source file
     const filteredArgs = [];
     for (let i = 0; i < templateArgs.length; i++) {
@@ -345,7 +340,7 @@ export async function ensureClangdArgs(projectDir) {
   // --query-driver: let clangd query PlatformIO cross-compilers for built-in
   // include paths (C++ stdlib, GCC internals, sysroot). Without this, clangd
   // can't resolve system headers for embedded targets like xtensa, arm, riscv.
-  const pioDir = getPlatformIOCoreDir();
+  const pioDir = pioNodeHelpers.core.getCoreDir();
   const sep = IS_WINDOWS ? '\\' : '/';
   const glob = IS_WINDOWS ? '*\\bin\\*' : '*/bin/*';
   const queryDriverGlob = [
