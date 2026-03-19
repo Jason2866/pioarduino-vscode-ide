@@ -35,9 +35,10 @@ export default class ProjectManager {
     this._configProvider = new ProjectConfigLanguageProvider();
     this._configChangedTimeout = undefined;
 
+    const activeBackend = getActiveBackend();
     this._pool = new pioNodeHelpers.project.ProjectPool({
-      ide: getActiveBackend().indexerIde,
-      intelliSenseBackend: getActiveBackend(),
+      ide: activeBackend.indexerIde,
+      intelliSenseBackend: activeBackend,
       api: {
         logOutputChannel: this._logOutputChannel,
         createFileSystemWatcher: vscode.workspace.createFileSystemWatcher,

@@ -16,6 +16,44 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import vscode from 'vscode';
 
+/**
+ * Tokenize a shell command string, respecting single and double quotes.
+ */
+function shellTokenize(cmd) {
+  const tokens = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i];
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+    } else if (ch === ' ' && !inSingle && !inDouble) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = '';
+      }
+    } else {
+      current += ch;
+    }
+  }
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+  return tokens;
+}
+
+/**
+ * Join tokens back into a shell command, quoting tokens that contain spaces.
+ */
+function shellJoin(tokens) {
+  return tokens
+    .map((t) => (t.includes(' ') ? `"${t}"` : t))
+    .join(' ');
+}
+
 function getPlatformIOCoreDir() {
   return (
     process.env.PLATFORMIO_CORE_DIR ||
@@ -128,6 +166,8 @@ export async function fixupCompileCommands(projectDir) {
     return null;
   }
 
+  const SKIP_DIRS = new Set(['node_modules', '.pio', '.git', 'build', '__pycache__']);
+
   async function walkDir(dir) {
     const result = [];
     let dirents;
@@ -163,7 +203,7 @@ export async function fixupCompileCommands(projectDir) {
       continue;
     }
 
-    const parts = entry.command.split(' ');
+    const parts = shellTokenize(entry.command);
 
     // 1. Resolve bare compiler name
     const compiler = parts[0];
@@ -176,12 +216,16 @@ export async function fixupCompileCommands(projectDir) {
 
     // 2. Convert relative -I paths to absolute
     for (let i = 1; i < parts.length; i++) {
-      if (parts[i].startsWith('-I') && !path.isAbsolute(parts[i].slice(2))) {
-        parts[i] = `-I${path.join(dir, parts[i].slice(2))}`;
+      const raw = parts[i];
+      if (raw.startsWith('-I')) {
+        const incPath = raw.slice(2);
+        if (incPath && !path.isAbsolute(incPath)) {
+          parts[i] = `-I${path.join(dir, incPath)}`;
+        }
       }
     }
 
-    entry.command = parts.join(' ');
+    entry.command = shellJoin(parts);
   }
 
   // 3. Add synthetic entries for project header/source files that aren't in
@@ -211,8 +255,6 @@ export async function fixupCompileCommands(projectDir) {
       templateEntry = e;
     }
   }
-
-  const SKIP_DIRS = new Set(['node_modules', '.pio', '.git', 'build', '__pycache__']);
 
   if (templateEntry) {
     const templateCmd = templateEntry.command.replace(/\s-o\s+\S+/, ' -o /dev/null');

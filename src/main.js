@@ -106,7 +106,7 @@ class PlatformIOVSCodeExtension {
 
     // misc.maybeRateExtension();
     misc.warnAboutConflictedExtensions();
-    applyBackendConfigDefaults();
+    await applyBackendConfigDefaults();
     warnIfBackendMissing();
     this.subscriptions.push(
       vscode.window.onDidChangeActiveTextEditor((editor) =>
