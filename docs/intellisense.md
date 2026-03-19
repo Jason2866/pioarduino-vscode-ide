@@ -29,7 +29,7 @@ On activation the extension automatically:
 
 ### Backend Selection
 
-```
+```text
 User setting (platformio-ide.intelliSenseEngine)
   │
   ├─ "cpptools" ──▶ Uses Microsoft C/C++ extension
@@ -104,7 +104,7 @@ The modified entries are written back to `compile_commands.json` and clangd is n
 
 ## Architecture Overview
 
-```
+```text
 Extension Activation
   │
   ├─ applyBackendConfigDefaults()    ◀── Sets VS Code config for active backend

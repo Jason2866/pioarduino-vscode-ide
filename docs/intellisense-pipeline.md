@@ -22,7 +22,7 @@ The IntelliSense index is rebuilt in two situations:
 
 ## Pipeline: cpptools Backend
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │ 1. TRIGGER                                                         │
 │    ProjectManager.switchToProject(projectDir)                      │
@@ -71,7 +71,7 @@ The IntelliSense index is rebuilt in two situations:
 
 ## Pipeline: clangd Backend
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │ 1. TRIGGER                                                         │
 │    ProjectManager.switchToProject(projectDir)                      │
@@ -162,7 +162,7 @@ rebuildArgs: (env) => ['run', '--target', 'compiledb', ...(env ? ['--environment
 
 ### Project Activation (applies to both backends)
 
-```
+```text
 User opens project
        │
        ▼
@@ -193,7 +193,7 @@ ProjectPool.switch(projectDir)
 
 ### File System Watch (automatic re-indexing)
 
-```
+```text
 platformio.ini changed    OR    Library directory changed
           │                              │
           ▼                              ▼
