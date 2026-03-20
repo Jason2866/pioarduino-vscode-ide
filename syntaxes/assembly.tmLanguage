@@ -957,7 +957,7 @@
 					<key>comment</key>
 					<string>Sections: .data .text .rodata etc.</string>
 					<key>match</key>
-					<string>\b\.(data|text|rodata|bss|init|fini)\b</string>
+					<string>\.\b(data|text|rodata|bss|init|fini)\b</string>
 					<key>name</key>
 					<string>entity.name.section.riscv</string>
 				</dict>
@@ -1171,7 +1171,7 @@
 					<key>comment</key>
 					<string>Xtensa multiply/accumulate instructions</string>
 					<key>match</key>
-					<string>\b(mul16[su]|mull|muluh|mulsh|mul\.aa\.[hlHL]{2}|mul\.ad\.[hlHL]{2}|mul\.da\.[hlHL]{2}|mul\.dd\.[hlHL]{2}|mula\.aa\.[hlHL]{2}|mula\.ad\.[hlHL]{2}|mula\.da\.[hlHL]{2}|mula\.dd\.[hlHL]{2}|muls\.aa\.[hlHL]{2}|muls\.ad\.[hlHL]{2}|muls\.da\.[hlHL]{2}|muls\.dd\.[hlHL]{2}|umul\.aa\.[hlHL]{2}|ldinc|lddec)\b</string>
+					<string>\b(mul16[su]|mull|muluh|mulsh|mul\.(aa|ad|da|dd)\.(hh|hl|lh|ll)|mula\.(aa|ad|da|dd)\.(hh|hl|lh|ll)|muls\.(aa|ad|da|dd)\.(hh|hl|lh|ll)|umul\.aa\.(hh|hl|lh|ll)|ldinc|lddec)\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.xtensa.multiply</string>
 				</dict>
@@ -1219,7 +1219,7 @@
 					<key>comment</key>
 					<string>Espressif/IDF linker sections</string>
 					<key>match</key>
-					<string>\b\.(iram[0-9]?|dram[0-9]?|rtc|flash)\b</string>
+					<string>\.\b(iram[0-9]?|dram[0-9]?|rtc|flash)\b</string>
 					<key>name</key>
 					<string>entity.name.section.espressif</string>
 				</dict>
