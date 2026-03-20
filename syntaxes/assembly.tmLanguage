@@ -1013,7 +1013,7 @@
 					<key>comment</key>
 					<string>RV32F/RV64F/RV32D/RV64D floating-point instructions</string>
 					<key>match</key>
-					<string>\b(fl[wd]|fs[wd]|fmadd\.[sd]|fmsub\.[sd]|fnmadd\.[sd]|fnmsub\.[sd]|fadd\.[sd]|fsub\.[sd]|fmul\.[sd]|fdiv\.[sd]|fsqrt\.[sd]|fsgnj[nx]?\.[sd]|fmin\.[sd]|fmax\.[sd]|fcvt\.[sd]\.[sd]|fcvt\.[sd]\.[wl]u?|fcvt\.[wl]u?\.[sd]|fmv\.[xw]\.[xw]|fmv\.[sd]\.[sd]|feq\.[sd]|flt\.[sd]|fle\.[sd]|fclass\.[sd])\b</string>
+					<string>\b(fl[wd]|fs[wd]|fmadd\.[sd]|fmsub\.[sd]|fnmadd\.[sd]|fnmsub\.[sd]|fadd\.[sd]|fsub\.[sd]|fmul\.[sd]|fdiv\.[sd]|fsqrt\.[sd]|fsgnj[nx]?\.[sd]|fmin\.[sd]|fmax\.[sd]|fcvt\.[sd]\.[sd]|fcvt\.[sd]\.[wl]u?|fcvt\.[wl]u?\.[sd]|fmv\.w\.x|fmv\.x\.w|fmv\.d\.x|fmv\.x\.d|feq\.[sd]|flt\.[sd]|fle\.[sd]|fclass\.[sd])\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.riscv.float</string>
 				</dict>
@@ -1029,7 +1029,7 @@
 					<key>comment</key>
 					<string>System and fence instructions</string>
 					<key>match</key>
-					<string>\b(ecall|ebreak|fence|fence\.i|mret|sret|uret|wfi|sfence\.vma)\b</string>
+					<string>\b(ecall|ebreak|sfence\.vma|fence\.tso|fence\.i|fence|mret|sret|uret|wfi)\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.riscv.system</string>
 				</dict>
@@ -1045,7 +1045,7 @@
 					<key>comment</key>
 					<string>RISC-V pseudo instructions</string>
 					<key>match</key>
-					<string>\b(nop|ret|call|tail|j|jr|mv|li|la|neg|negw|not|seqz|snez|sltz|sgtz|beqz|bnez|blez|bgez|bgt|bgtu|ble|bleu|rdcycle|rdcycleh|rdtime|rdtimeh|rdinstret|rdinstreth|fence\.tso)\b</string>
+					<string>\b(nop|ret|call|tail|j|jr|mv|li|la|neg|negw|not|seqz|snez|sltz|sgtz|beqz|bnez|blez|bgez|bgt|bgtu|ble|bleu|rdcycle|rdcycleh|rdtime|rdtimeh|rdinstret|rdinstreth)\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.riscv.pseudo</string>
 				</dict>
@@ -1105,9 +1105,25 @@
 				</dict>
 				<dict>
 					<key>comment</key>
-					<string>Xtensa arithmetic instructions</string>
+					<string>Xtensa floating-point instructions (before arithmetic to avoid bare add/sub/mov stealing .s forms)</string>
 					<key>match</key>
-					<string>\b(add|add\.n|addi|addi\.n|addmi|addx[248]|sub|subx[248]|neg|abs|min|max|minu|maxu|clamps|sext)\b</string>
+					<string>\b(add\.s|sub\.s|mul\.s|madd\.s|msub\.s|abs\.s|neg\.s|mov\.s|moveqz\.s|movnez\.s|movltz\.s|movgez\.s|movf\.s|movt\.s|round\.s|trunc\.s|ceil\.s|floor\.s|float\.s|ufloat\.s|un\.s|oeq\.s|ueq\.s|olt\.s|ult\.s|ole\.s|ule\.s|lsi|lsiu|ssi|ssiu|const\.s|nexp01\.s|addexp\.s|addexpm\.s|mkdadj\.s|mksadj\.s|maddn\.s|divn\.s|rfr|wfr)\b</string>
+					<key>name</key>
+					<string>keyword.mnemonic.xtensa.float</string>
+				</dict>
+				<dict>
+					<key>comment</key>
+					<string>Xtensa multiply/accumulate instructions</string>
+					<key>match</key>
+					<string>\b(mul16[su]|mull|muluh|mulsh|mul\.(aa|ad|da|dd)\.(hh|hl|lh|ll)|mula\.(aa|ad|da|dd)\.(hh|hl|lh|ll)|muls\.(aa|ad|da|dd)\.(hh|hl|lh|ll)|umul\.aa\.(hh|hl|lh|ll)|ldinc|lddec)\b</string>
+					<key>name</key>
+					<string>keyword.mnemonic.xtensa.multiply</string>
+				</dict>
+				<dict>
+					<key>comment</key>
+					<string>Xtensa arithmetic instructions (dotted forms before bare forms)</string>
+					<key>match</key>
+					<string>\b(add\.n|addi\.n|add|addi|addmi|addx[248]|sub|subx[248]|neg|abs|min|max|minu|maxu|clamps|sext)\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.xtensa.arithmetic</string>
 				</dict>
@@ -1129,25 +1145,25 @@
 				</dict>
 				<dict>
 					<key>comment</key>
-					<string>Xtensa load/store instructions</string>
+					<string>Xtensa load/store instructions (dotted forms before bare forms)</string>
 					<key>match</key>
-					<string>\b(l8ui|l16ui|l16si|l32i|l32i\.n|l32r|l32e|s8i|s16i|s32i|s32i\.n|s32e|s32c1i)\b</string>
+					<string>\b(l32i\.n|s32i\.n|l8ui|l16ui|l16si|l32i|l32r|l32e|s8i|s16i|s32i|s32e|s32c1i)\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.xtensa.load-store</string>
 				</dict>
 				<dict>
 					<key>comment</key>
-					<string>Xtensa move instructions</string>
+					<string>Xtensa move instructions (dotted forms before bare forms)</string>
 					<key>match</key>
-					<string>\b(mov|mov\.n|movi|movi\.n|moveqz|movnez|movltz|movgez)\b</string>
+					<string>\b(mov\.n|movi\.n|mov|movi|moveqz|movnez|movltz|movgez)\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.xtensa.move</string>
 				</dict>
 				<dict>
 					<key>comment</key>
-					<string>Xtensa branch instructions</string>
+					<string>Xtensa branch instructions (dotted forms before bare forms)</string>
 					<key>match</key>
-					<string>\b(j|jx|call0|callx0|call4|callx4|call8|callx8|call12|callx12|ret|ret\.n|retw|retw\.n|entry|beq|bne|blt|bltu|bge|bgeu|beqi|bnei|blti|bltui|bgei|bgeui|beqz|bnez|bltz|bgez|ball|bany|bnall|bnone|bbc|bbs|bbci|bbsi)\b</string>
+					<string>\b(ret\.n|retw\.n|ret|retw|j|jx|call0|callx0|call4|callx4|call8|callx8|call12|callx12|entry|beq|bne|blt|bltu|bge|bgeu|beqi|bnei|blti|bltui|bgei|bgeui|beqz|bnez|bltz|bgez|ball|bany|bnall|bnone|bbc|bbs|bbci|bbsi)\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.xtensa.branch</string>
 				</dict>
@@ -1161,41 +1177,25 @@
 				</dict>
 				<dict>
 					<key>comment</key>
-					<string>Xtensa special register read/write/exchange</string>
+					<string>Xtensa special register read/write/exchange (dotted forms before bare forms)</string>
 					<key>match</key>
-					<string>\b(rsr|rsr\.\w+|wsr|wsr\.\w+|xsr|xsr\.\w+|rur|wur)\b</string>
+					<string>\b(rsr\.\w+|wsr\.\w+|xsr\.\w+|rsr|wsr|xsr|rur|wur)\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.xtensa.special-register</string>
 				</dict>
 				<dict>
 					<key>comment</key>
-					<string>Xtensa multiply/accumulate instructions</string>
+					<string>Xtensa synchronization and memory order instructions (dotted forms before bare forms)</string>
 					<key>match</key>
-					<string>\b(mul16[su]|mull|muluh|mulsh|mul\.(aa|ad|da|dd)\.(hh|hl|lh|ll)|mula\.(aa|ad|da|dd)\.(hh|hl|lh|ll)|muls\.(aa|ad|da|dd)\.(hh|hl|lh|ll)|umul\.aa\.(hh|hl|lh|ll)|ldinc|lddec)\b</string>
-					<key>name</key>
-					<string>keyword.mnemonic.xtensa.multiply</string>
-				</dict>
-				<dict>
-					<key>comment</key>
-					<string>Xtensa floating-point instructions</string>
-					<key>match</key>
-					<string>\b(add\.s|sub\.s|mul\.s|madd\.s|msub\.s|abs\.s|neg\.s|mov\.s|moveqz\.s|movnez\.s|movltz\.s|movgez\.s|movf\.s|movt\.s|round\.s|trunc\.s|ceil\.s|floor\.s|float\.s|ufloat\.s|un\.s|oeq\.s|ueq\.s|olt\.s|ult\.s|ole\.s|ule\.s|lsi|lsiu|ssi|ssiu|const\.s|nexp01\.s|addexp\.s|addexpm\.s|mkdadj\.s|mksadj\.s|maddn\.s|divn\.s|rfr|wfr)\b</string>
-					<key>name</key>
-					<string>keyword.mnemonic.xtensa.float</string>
-				</dict>
-				<dict>
-					<key>comment</key>
-					<string>Xtensa synchronization and memory order instructions</string>
-					<key>match</key>
-					<string>\b(memw|extw|isync|rsync|esync|dsync|nop|nop\.n)\b</string>
+					<string>\b(nop\.n|nop|memw|extw|isync|rsync|esync|dsync)\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.xtensa.sync</string>
 				</dict>
 				<dict>
 					<key>comment</key>
-					<string>Xtensa system/interrupt/debug instructions</string>
+					<string>Xtensa system/interrupt/debug instructions (dotted forms before bare forms)</string>
 					<key>match</key>
-					<string>\b(waiti|break|break\.n|syscall|simcall|excw|rfde|rfe|rfwo|rfwu|rfi)\b</string>
+					<string>\b(break\.n|break|waiti|syscall|simcall|excw|rfde|rfe|rfwo|rfwu|rfi)\b</string>
 					<key>name</key>
 					<string>keyword.mnemonic.xtensa.system</string>
 				</dict>
