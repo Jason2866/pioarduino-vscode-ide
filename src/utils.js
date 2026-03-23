@@ -55,11 +55,12 @@ export async function notifyError(title, err) {
 }
 
 export function getIDEManifest() {
-  return vscode.extensions.getExtension('pioarduino.pioarduino-ide').packageJSON;
+  const ext = vscode.extensions.getExtension('pioarduino.pioarduino-ide');
+  return ext ? ext.packageJSON : {};
 }
 
 export function getIDEVersion() {
-  return getIDEManifest().version;
+  return getIDEManifest().version || 'unknown';
 }
 
 export async function listCoreSerialPorts() {
