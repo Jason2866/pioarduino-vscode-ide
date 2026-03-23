@@ -379,6 +379,44 @@ function upsertArg(args, prefix, value) {
   return true;
 }
 
+/**
+ * Ensure .vscode/launch.json exists for debugging.
+ *
+ * When the cpptools backend is active, `pio project init --ide vscode` creates
+ * this file automatically. The clangd backend uses `pio run --target compiledb`
+ * instead, which only produces compile_commands.json. Without launch.json the
+ * debugger has no configuration to start from, so we create a minimal one.
+ */
+export async function ensureLaunchJson(projectDir) {
+  if (!projectDir) {
+    return;
+  }
+  const launchDir = path.join(projectDir, '.vscode');
+  const launchPath = path.join(launchDir, 'launch.json');
+  try {
+    await fs.access(launchPath);
+    return; // already exists
+  } catch {
+    // file does not exist – create it
+  }
+  const config = {
+    version: '0.2.0',
+    configurations: [
+      {
+        type: 'platformio-debug',
+        request: 'launch',
+        name: 'PIO Debug',
+      },
+    ],
+  };
+  try {
+    await fs.mkdir(launchDir, { recursive: true });
+    await fs.writeFile(launchPath, JSON.stringify(config, null, 4) + '\n', 'utf-8');
+  } catch (err) {
+    console.warn(`Failed to create launch.json: ${err.message}`);
+  }
+}
+
 export async function notifyRescanBackend() {
   const backend = getActiveBackend();
   if (!backend.rescanCommand || !isBackendExtensionInstalled()) {
