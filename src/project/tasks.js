@@ -212,11 +212,13 @@ export default class ProjectTaskManager {
   }
 
   onDidEndTaskProcess(event) {
-    // Fire onDidUpload event for upload tasks so other extensions can reacquire the port
+    // Fire onDidUpload for any upload task that completes, regardless of
+    // whether it matches _startedTask.  This is more robust than relying on
+    // areTasksEqual which can fail when ProjectTask.args differ from the
+    // resolved VSCode Task execution args.
     if (
-      this._startedTask &&
-      this.areTasksEqual(this._startedTask, event.execution.task) &&
-      this._isUploadTask(this._startedTask)
+      event.execution.task.definition.type === ProjectTaskManager.PROVIDER_TYPE &&
+      this._isUploadTask(event.execution.task)
     ) {
       extension.fireDidUpload(this._customPort, event.exitCode);
     }
