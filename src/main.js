@@ -31,6 +31,32 @@ class PlatformIOVSCodeExtension {
     this.subscriptions = [];
 
     this._enterpriseSettings = undefined;
+
+    // Upload lifecycle events for serial port coordination.
+    // onWillUpload uses a waitUntil() barrier pattern (like onWillSaveTextDocument)
+    // so that pioarduino waits until all subscribers have released the port.
+    this._onWillUploadEmitter = new vscode.EventEmitter();
+    this.onWillUpload = this._onWillUploadEmitter.event;
+
+    this._onDidUploadEmitter = new vscode.EventEmitter();
+    this.onDidUpload = this._onDidUploadEmitter.event;
+  }
+
+  async fireWillUpload(port) {
+    const barriers = [];
+    this._onWillUploadEmitter.fire({
+      port,
+      waitUntil(promise) {
+        barriers.push(promise);
+      },
+    });
+    if (barriers.length) {
+      await Promise.all(barriers);
+    }
+  }
+
+  fireDidUpload(port, exitCode) {
+    this._onDidUploadEmitter.fire({ port, exitCode });
   }
 
   async activate(context) {
@@ -319,6 +345,8 @@ class PlatformIOVSCodeExtension {
     vscode.commands.executeCommand('setContext', 'pioCoreReady', false);
     vscode.commands.executeCommand('setContext', 'pioProjectReady', false);
     utils.disposeSubscriptions(this.subscriptions);
+    this._onWillUploadEmitter.dispose();
+    this._onDidUploadEmitter.dispose();
   }
 
   deactivate() {
@@ -330,7 +358,11 @@ export const extension = new PlatformIOVSCodeExtension();
 
 export function activate(context) {
   extension.activate(context);
-  return extension;
+  return {
+    // Public API for other extensions
+    onWillUpload: extension.onWillUpload,
+    onDidUpload: extension.onDidUpload,
+  };
 }
 
 export function deactivate() {

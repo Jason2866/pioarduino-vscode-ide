@@ -155,8 +155,15 @@ export default class ProjectTaskManager {
     return vscodeTask;
   }
 
-  runTask(task) {
+  async runTask(task) {
     this._autoCloseSerialMonitor(task);
+
+    // Fire onWillUpload event for upload tasks and wait until all subscribers
+    // (e.g. ESP-Decoder) have released the serial port before starting the task.
+    if (this._isUploadTask(task)) {
+      await extension.fireWillUpload(this._customPort);
+    }
+
     // use string-based task defination for Win 7 // issue #3481
     vscode.commands.executeCommand(
       'workbench.action.tasks.runTask',
@@ -205,6 +212,15 @@ export default class ProjectTaskManager {
   }
 
   onDidEndTaskProcess(event) {
+    // Fire onDidUpload event for upload tasks so other extensions can reacquire the port
+    if (
+      this._startedTask &&
+      this.areTasksEqual(this._startedTask, event.execution.task) &&
+      this._isUploadTask(this._startedTask)
+    ) {
+      extension.fireDidUpload(this._customPort, event.exitCode);
+    }
+
     const skipConds = [
       !this._startedTask,
       !this.areTasksEqual(this._startedTask, event.execution.task),
@@ -232,6 +248,11 @@ export default class ProjectTaskManager {
   isMonitorAndUploadTask(task) {
     const args = this.getTaskArgs(task);
     return ['--target', 'upload', 'monitor'].every((arg) => args.includes(arg));
+  }
+
+  _isUploadTask(task) {
+    const args = this.getTaskArgs(task);
+    return args.includes('upload');
   }
 
   areTasksEqual(task1, task2) {
