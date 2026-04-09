@@ -161,8 +161,15 @@ export default class ProjectTaskManager {
     // Fire onWillUpload event for upload tasks and wait until all subscribers
     // (e.g. ESP-Decoder) have released the serial port before starting the task.
     if (this._isUploadTask(task)) {
-      this._ownedUploadTaskId = task.id;
       await extension.fireWillUpload(this._customPort);
+      // Set ownership only after coordination succeeds and the task is launched,
+      // so a fireWillUpload rejection leaves _ownedUploadTaskId unset.
+      await vscode.commands.executeCommand(
+        'workbench.action.tasks.runTask',
+        `${ProjectTaskManager.PROVIDER_TYPE}: ${task.id}`,
+      );
+      this._ownedUploadTaskId = task.id;
+      return;
     }
 
     // use string-based task defination for Win 7 // issue #3481
