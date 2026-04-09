@@ -161,7 +161,12 @@ export default class ProjectTaskManager {
     // Fire onWillUpload event for upload tasks and wait until all subscribers
     // (e.g. ESP-Decoder) have released the serial port before starting the task.
     if (this._isUploadTask(task)) {
-      await extension.fireWillUpload(this._customPort);
+      try {
+        await extension.fireWillUpload(this._customPort);
+      } catch (err) {
+        utils.notifyError('Upload Port Coordination', err);
+        return;
+      }
       // Set ownership only after coordination succeeds and the task is launched,
       // so a fireWillUpload rejection leaves _ownedUploadTaskId unset.
       await vscode.commands.executeCommand(
