@@ -51,7 +51,12 @@ class PlatformIOVSCodeExtension {
       },
     });
     if (barriers.length) {
-      await Promise.all(barriers);
+      const results = await Promise.allSettled(barriers);
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          utils.notifyError('Upload Port Coordination', result.reason);
+        }
+      }
     }
   }
 

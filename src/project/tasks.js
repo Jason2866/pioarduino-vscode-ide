@@ -161,6 +161,7 @@ export default class ProjectTaskManager {
     // Fire onWillUpload event for upload tasks and wait until all subscribers
     // (e.g. ESP-Decoder) have released the serial port before starting the task.
     if (this._isUploadTask(task)) {
+      this._ownedUploadTaskId = task.id;
       await extension.fireWillUpload(this._customPort);
     }
 
@@ -212,14 +213,15 @@ export default class ProjectTaskManager {
   }
 
   onDidEndTaskProcess(event) {
-    // Fire onDidUpload for any upload task that completes, regardless of
-    // whether it matches _startedTask.  This is more robust than relying on
-    // areTasksEqual which can fail when ProjectTask.args differ from the
-    // resolved VSCode Task execution args.
+    // Only fire onDidUpload for the exact upload task started by this manager
+    // instance to avoid duplicate emissions when multiple ProjectTaskManagers
+    // are active (one per workspace folder).
     if (
+      this._ownedUploadTaskId &&
       event.execution.task.definition.type === ProjectTaskManager.PROVIDER_TYPE &&
-      this._isUploadTask(event.execution.task)
+      event.execution.task.definition.task === this._ownedUploadTaskId
     ) {
+      this._ownedUploadTaskId = undefined;
       extension.fireDidUpload(this._customPort, event.exitCode);
     }
 
