@@ -339,6 +339,10 @@ export default class ProjectTaskManager {
       serialPorts = serialPorts.filter(
         (port) => !/\/(ttyS\d|rfcomm)/.test(port.port),
       );
+    } else if (process.platform === 'win32') {
+      serialPorts = serialPorts.filter(
+        (port) => !/bluetooth/i.test(port.description || ''),
+      );
     }
     const pickedItem = await vscode.window.showQuickPick(
       [
