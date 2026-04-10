@@ -124,6 +124,17 @@ export default class ProjectTaskManager {
       envClone.PATH = process.env.PLATFORMIO_PATH;
       envClone.Path = process.env.PLATFORMIO_PATH;
     }
+    // getCoreArgs only appends --upload-port when the TaskItem declares
+    // optionalArgs. Dynamically fetched targets (uploadfs, erase_flash, …)
+    // have no optionalArgs, so we append the port ourselves when needed.
+    let coreArgs = projectTask.getCoreArgs({ port: this._customPort });
+    if (this._customPort && !coreArgs.includes('--upload-port')) {
+      const targetIdx = coreArgs.indexOf('--target');
+      if (targetIdx !== -1 && /^(upload|erase)/i.test(coreArgs[targetIdx + 1] ?? '')) {
+        coreArgs = [...coreArgs, '--upload-port', this._customPort];
+      }
+    }
+
     const vscodeTask = new vscode.Task(
       {
         type: ProjectTaskManager.PROVIDER_TYPE,
@@ -134,7 +145,7 @@ export default class ProjectTaskManager {
       ProjectTaskManager.PROVIDER_TYPE,
       new vscode.ProcessExecution(
         IS_WINDOWS ? 'platformio.exe' : 'platformio',
-        projectTask.getCoreArgs({ port: this._customPort }),
+        coreArgs,
         {
           cwd: this.projectDir,
           env: envClone,
@@ -268,7 +279,11 @@ export default class ProjectTaskManager {
 
   _isUploadTask(task) {
     const args = this.getTaskArgs(task);
-    return args.includes('upload');
+    if (args.includes('upload')) {
+      return true;
+    }
+    const targetIdx = args.indexOf('--target');
+    return targetIdx !== -1 && /^upload/i.test(args[targetIdx + 1] ?? '');
   }
 
   areTasksEqual(task1, task2) {
