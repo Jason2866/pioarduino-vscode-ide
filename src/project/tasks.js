@@ -335,6 +335,10 @@ export default class ProjectTaskManager {
           !/bluetooth|debug/i.test(port.port) &&
           !/bluetooth|debug/i.test(port.description || ''),
       );
+    } else if (process.platform === 'linux') {
+      serialPorts = serialPorts.filter(
+        (port) => !/\/(ttyS\d|rfcomm)/.test(port.port),
+      );
     }
     const pickedItem = await vscode.window.showQuickPick(
       [
