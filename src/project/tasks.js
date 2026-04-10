@@ -170,22 +170,24 @@ export default class ProjectTaskManager {
   async runTask(task) {
     this._autoCloseSerialMonitor(task);
 
-    // Fire onWillUpload event for upload tasks and wait until all subscribers
+    // Wait for all port-owning tasks (upload*, erase*) until all subscribers
     // (e.g. ESP-Decoder) have released the serial port before starting the task.
-    if (this._isUploadTask(task)) {
+    if (this._needsPortCoordinationTask(task)) {
       try {
         await extension.fireWillUpload(this._customPort);
       } catch (err) {
         utils.notifyError('Upload Port Coordination', err);
         return;
       }
-      // Set ownership only after coordination succeeds and the task is launched,
-      // so a fireWillUpload rejection leaves _ownedUploadTaskId unset.
+      // Set ownership only for real uploads so that fireDidUpload is emitted
+      // on completion. Erase tasks do not emit upload lifecycle events.
       await vscode.commands.executeCommand(
         'workbench.action.tasks.runTask',
         `${ProjectTaskManager.PROVIDER_TYPE}: ${task.id}`,
       );
-      this._ownedUploadTaskId = task.id;
+      if (this._isUploadTask(task)) {
+        this._ownedUploadTaskId = task.id;
+      }
       return;
     }
 
@@ -202,8 +204,7 @@ export default class ProjectTaskManager {
     const startedArgs = this.getTaskArgs(this._startedTask);
     const closeMonitorConds = [
       extension.getConfiguration('autoCloseSerialMonitor'),
-      ['upload', 'test'].some((arg) => startedArgs.includes(arg)) ||
-        ProjectTaskManager._isPortOwningTarget(this._getTarget(startedArgs)),
+      startedArgs.includes('test') || this._needsPortCoordinationTask(this._startedTask),
     ];
     if (!closeMonitorConds.every((value) => value)) {
       return;
@@ -287,11 +288,24 @@ export default class ProjectTaskManager {
     return idx !== -1 ? args[idx + 1] : undefined;
   }
 
-  _isUploadTask(task) {
+  // Returns true for any task that needs exclusive port access: upload* and
+  // erase* targets. Used for port coordination and serial monitor auto-close.
+  _needsPortCoordinationTask(task) {
     const args = this.getTaskArgs(task);
     return (
       args.includes('upload') ||
       ProjectTaskManager._isPortOwningTarget(this._getTarget(args))
+    );
+  }
+
+  // Returns true only for real upload tasks (upload, uploadfs, …).
+  // Erase tasks are intentionally excluded so upload lifecycle events
+  // (fireWillUpload / fireDidUpload) are not emitted for erase operations.
+  _isUploadTask(task) {
+    const args = this.getTaskArgs(task);
+    return (
+      args.includes('upload') ||
+      /^upload/i.test(this._getTarget(args) ?? '')
     );
   }
 
