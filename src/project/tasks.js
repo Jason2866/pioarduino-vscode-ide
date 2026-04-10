@@ -128,11 +128,12 @@ export default class ProjectTaskManager {
     // optionalArgs. Dynamically fetched targets (uploadfs, erase_flash, …)
     // have no optionalArgs, so we append the port ourselves when needed.
     let coreArgs = projectTask.getCoreArgs({ port: this._customPort });
-    if (this._customPort && !coreArgs.includes('--upload-port')) {
-      const targetIdx = coreArgs.indexOf('--target');
-      if (targetIdx !== -1 && /^(upload|erase)/i.test(coreArgs[targetIdx + 1] ?? '')) {
-        coreArgs = [...coreArgs, '--upload-port', this._customPort];
-      }
+    if (
+      this._customPort &&
+      !coreArgs.includes('--upload-port') &&
+      ProjectTaskManager._isPortOwningTarget(this._getTarget(coreArgs))
+    ) {
+      coreArgs = [...coreArgs, '--upload-port', this._customPort];
     }
 
     const vscodeTask = new vscode.Task(
@@ -198,11 +199,11 @@ export default class ProjectTaskManager {
   async _autoCloseSerialMonitor(startedTask) {
     this._startedTask = startedTask;
     this._tasksToRestore = [];
+    const startedArgs = this.getTaskArgs(this._startedTask);
     const closeMonitorConds = [
       extension.getConfiguration('autoCloseSerialMonitor'),
-      ['upload', 'test'].some((arg) =>
-        this.getTaskArgs(this._startedTask).includes(arg),
-      ),
+      ['upload', 'test'].some((arg) => startedArgs.includes(arg)) ||
+        ProjectTaskManager._isPortOwningTarget(this._getTarget(startedArgs)),
     ];
     if (!closeMonitorConds.every((value) => value)) {
       return;
@@ -277,13 +278,21 @@ export default class ProjectTaskManager {
     return ['--target', 'upload', 'monitor'].every((arg) => args.includes(arg));
   }
 
+  static _isPortOwningTarget(target) {
+    return /^(upload|erase)/i.test(target ?? '');
+  }
+
+  _getTarget(args) {
+    const idx = args.indexOf('--target');
+    return idx !== -1 ? args[idx + 1] : undefined;
+  }
+
   _isUploadTask(task) {
     const args = this.getTaskArgs(task);
-    if (args.includes('upload')) {
-      return true;
-    }
-    const targetIdx = args.indexOf('--target');
-    return targetIdx !== -1 && /^upload/i.test(args[targetIdx + 1] ?? '');
+    return (
+      args.includes('upload') ||
+      ProjectTaskManager._isPortOwningTarget(this._getTarget(args))
+    );
   }
 
   areTasksEqual(task1, task2) {
