@@ -7,7 +7,7 @@
  */
 
 import { IS_WINDOWS, STATUS_BAR_PRIORITY_START } from '../constants';
-import { disposeSubscriptions, listCoreSerialPorts } from '../utils';
+import { disposeSubscriptions, listCoreSerialPorts, notifyError } from '../utils';
 import { getProjectItemState, updateProjectItemState } from './helpers';
 import ProjectTasksTreeProvider from './task-tree';
 import { extension } from '../main';
@@ -176,7 +176,7 @@ export default class ProjectTaskManager {
       try {
         await extension.fireWillUpload(this._customPort);
       } catch (err) {
-        utils.notifyError('Upload Port Coordination', err);
+        notifyError('Upload Port Coordination', err);
         return;
       }
       // Set ownership only for real uploads so that fireDidUpload is emitted
@@ -373,7 +373,7 @@ export default class ProjectTaskManager {
       );
     } else if (process.platform === 'linux') {
       serialPorts = serialPorts.filter(
-        (port) => !/\/(ttyS\d|rfcomm)/.test(port.port),
+        (port) => !/\/(ttyS\d+|rfcomm)/.test(port.port),
       );
     } else if (process.platform === 'win32') {
       serialPorts = serialPorts.filter(
