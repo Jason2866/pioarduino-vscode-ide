@@ -331,9 +331,7 @@ export default class ProjectTaskManager {
     let serialPorts = await listCoreSerialPorts();
     if (process.platform === 'darwin') {
       serialPorts = serialPorts.filter(
-        (port) =>
-          !/bluetooth|debug/i.test(port.port) &&
-          !/bluetooth|debug/i.test(port.description || ''),
+        (port) => !/\.(Bluetooth|debug)/i.test(port.port),
       );
     } else if (process.platform === 'linux') {
       serialPorts = serialPorts.filter(
