@@ -328,7 +328,14 @@ export default class ProjectTaskManager {
   }
 
   async pickProjectPort() {
-    const serialPorts = await listCoreSerialPorts();
+    let serialPorts = await listCoreSerialPorts();
+    if (process.platform === 'darwin') {
+      serialPorts = serialPorts.filter(
+        (port) =>
+          !/bluetooth|debug/i.test(port.port) &&
+          !/bluetooth|debug/i.test(port.description || ''),
+      );
+    }
     const pickedItem = await vscode.window.showQuickPick(
       [
         { label: 'Auto' },
