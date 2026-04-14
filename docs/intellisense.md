@@ -95,8 +95,9 @@ To fix this, the extension:
 
 `ensureClangdArgs()` first checks whether Espressif's patched clangd is available in the PlatformIO packages directory. Espressif's clangd has native support for Xtensa and ESP RISC-V custom ISA extensions (`xespv`, `xesploop`, `xespdsp`, etc.) that the upstream clangd does not understand. If found, it sets `clangd.path` to point to this binary. The search order is:
 
-1. `packages/tool-clangd-esp/esp-clangd/bin/clangd` — dedicated lightweight clangd package
-2. `packages/toolchain-clang-esp/esp-clang/bin/clangd` — bundled in the full Espressif clang toolchain
+1. `packages/tool-clangd-esp/bin/clangd` — dedicated lightweight clangd package (`clangd.exe` on Windows)
+2. `packages/tool-clangd-esp/esp-clangd/bin/clangd` — legacy layout of the dedicated package (`clangd.exe` on Windows)
+3. `packages/toolchain-clang-esp/esp-clang/bin/clangd` — bundled in the full Espressif clang toolchain (`clangd.exe` on Windows)
 
 It also updates the `clangd.arguments` workspace setting to include:
 
