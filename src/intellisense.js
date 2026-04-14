@@ -345,6 +345,7 @@ async function findEspClangd() {
   const packagesDir = path.join(pioNodeHelpers.core.getCoreDir(), 'packages');
   const exe = IS_WINDOWS ? 'clangd.exe' : 'clangd';
   const candidates = [
+    path.join(packagesDir, 'tool-clangd-esp', 'bin', exe),
     path.join(packagesDir, 'tool-clangd-esp', 'esp-clangd', 'bin', exe),
     path.join(packagesDir, 'toolchain-clang-esp', 'esp-clang', 'bin', exe),
   ];
