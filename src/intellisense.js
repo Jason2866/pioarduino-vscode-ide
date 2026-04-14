@@ -378,7 +378,7 @@ export async function ensureClangdArgs(projectDir) {
   if (espClangd) {
     const inspected = config.inspect('path');
     const currentPath = inspected
-      ? inspected.workspaceValue ?? inspected.globalValue
+      ? (inspected.workspaceValue ?? inspected.globalValue)
       : undefined;
     if (currentPath !== espClangd) {
       await config.update('path', espClangd, vscode.ConfigurationTarget.Workspace);
