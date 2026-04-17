@@ -85,7 +85,6 @@ export async function warnAboutConflictedExtensions() {
         'vscode.open',
         vscode.Uri.parse('http://bit.ly/pio-vscode-conflicted-extensions'),
       );
-      extension.context.globalState.update(stateKey, { done: true });
       break;
     case 'Uninstall conflicted':
       conflicted.forEach((ext) => {
