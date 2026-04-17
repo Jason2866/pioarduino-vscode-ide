@@ -185,6 +185,8 @@ export async function ensureCompileCommands(projectDir) {
         // Post-process the freshly generated file (same steps as onDidRebuildIndex).
         await fixupCompileCommands(projectDir);
         await ensureClangdConfig(projectDir);
+        await ensureClangdArgs(projectDir);
+        await ensureLaunchJson(projectDir);
         await notifyRescanBackend();
       } catch (err) {
         vscode.window.showErrorMessage(
