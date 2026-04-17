@@ -169,7 +169,8 @@ export async function ensureCompileCommands(projectDir) {
     // file does not exist – generate it
   }
   // Run in background with a progress notification so the UI stays responsive.
-  vscode.window.withProgress(
+  // Intentionally not awaited: project switching should not block on `pio run`.
+  return vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: 'PlatformIO: Generating compile_commands.json…',
@@ -187,7 +188,7 @@ export async function ensureCompileCommands(projectDir) {
         await notifyRescanBackend();
       } catch (err) {
         vscode.window.showErrorMessage(
-          `Failed to generate compile_commands.json: ${err.message}`,
+          `Failed to generate compile_commands.json: ${err && err.message ? err.message : err}`,
         );
       }
     },
