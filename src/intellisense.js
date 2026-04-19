@@ -479,11 +479,23 @@ export async function ensureClangdConfig(projectDir) {
 }
 
 export async function ensureClangdArgs(projectDir) {
-  if (
-    getActiveBackendId() !== 'clangd' ||
-    !projectDir ||
-    !isBackendExtensionInstalled()
-  ) {
+  if (!projectDir) {
+    return;
+  }
+  // When cpptools is active, remove any leftover clangd workspace settings
+  if (getActiveBackendId() !== 'clangd') {
+    const config = vscode.workspace.getConfiguration('clangd');
+    const inspected = config.inspect('path');
+    if (inspected && inspected.workspaceValue !== undefined) {
+      await config.update('path', undefined, vscode.ConfigurationTarget.Workspace);
+    }
+    const inspectedArgs = config.inspect('arguments');
+    if (inspectedArgs && inspectedArgs.workspaceValue !== undefined) {
+      await config.update('arguments', undefined, vscode.ConfigurationTarget.Workspace);
+    }
+    return;
+  }
+  if (!isBackendExtensionInstalled()) {
     return;
   }
   const config = vscode.workspace.getConfiguration('clangd');
