@@ -482,16 +482,33 @@ export async function ensureClangdArgs(projectDir) {
   if (!projectDir) {
     return;
   }
-  // When cpptools is active, remove any leftover clangd workspace settings
+  // When cpptools is active, strip only the flags this extension manages
   if (getActiveBackendId() !== 'clangd') {
     const config = vscode.workspace.getConfiguration('clangd');
-    const inspected = config.inspect('path');
-    if (inspected && inspected.workspaceValue !== undefined) {
-      await config.update('path', undefined, vscode.ConfigurationTarget.Workspace);
+
+    // Remove clangd.path only when it points to an extension-managed binary
+    const inspectedPath = config.inspect('path');
+    if (inspectedPath && inspectedPath.workspaceValue !== undefined) {
+      const packagesDir = path.join(pioNodeHelpers.core.getCoreDir(), 'packages');
+      if (inspectedPath.workspaceValue.startsWith(packagesDir)) {
+        await config.update('path', undefined, vscode.ConfigurationTarget.Workspace);
+      }
     }
+
+    // Strip only --compile-commands-dir and --query-driver from arguments
     const inspectedArgs = config.inspect('arguments');
     if (inspectedArgs && inspectedArgs.workspaceValue !== undefined) {
-      await config.update('arguments', undefined, vscode.ConfigurationTarget.Workspace);
+      const managed = ['--compile-commands-dir=', '--query-driver='];
+      const filtered = inspectedArgs.workspaceValue.filter(
+        (a) => !managed.some((prefix) => a.startsWith(prefix)),
+      );
+      if (filtered.length !== inspectedArgs.workspaceValue.length) {
+        await config.update(
+          'arguments',
+          filtered.length ? filtered : undefined,
+          vscode.ConfigurationTarget.Workspace,
+        );
+      }
     }
     return;
   }
