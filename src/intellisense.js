@@ -488,21 +488,29 @@ export async function ensureClangdArgs(projectDir) {
 
     // Remove clangd.path only when it points to an extension-managed binary
     const inspectedPath = config.inspect('path');
-    if (inspectedPath && inspectedPath.workspaceValue !== undefined) {
+    const workspacePath = inspectedPath?.workspaceValue;
+    if (typeof workspacePath === 'string') {
       const packagesDir = path.join(pioNodeHelpers.core.getCoreDir(), 'packages');
-      if (inspectedPath.workspaceValue.startsWith(packagesDir)) {
+      const relativePath = path.relative(packagesDir, workspacePath);
+      const isInsidePackages =
+        relativePath &&
+        relativePath !== '..' &&
+        !relativePath.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relativePath);
+      if (isInsidePackages) {
         await config.update('path', undefined, vscode.ConfigurationTarget.Workspace);
       }
     }
 
     // Strip only --compile-commands-dir and --query-driver from arguments
     const inspectedArgs = config.inspect('arguments');
-    if (inspectedArgs && inspectedArgs.workspaceValue !== undefined) {
+    const workspaceArgs = inspectedArgs?.workspaceValue;
+    if (Array.isArray(workspaceArgs)) {
       const managed = ['--compile-commands-dir=', '--query-driver='];
-      const filtered = inspectedArgs.workspaceValue.filter(
-        (a) => !managed.some((prefix) => a.startsWith(prefix)),
+      const filtered = workspaceArgs.filter(
+        (a) => typeof a !== 'string' || !managed.some((prefix) => a.startsWith(prefix)),
       );
-      if (filtered.length !== inspectedArgs.workspaceValue.length) {
+      if (filtered.length !== workspaceArgs.length) {
         await config.update(
           'arguments',
           filtered.length ? filtered : undefined,
