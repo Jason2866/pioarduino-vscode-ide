@@ -492,9 +492,7 @@ export async function ensureClangdConfig(projectDir) {
 
   const hasBuiltinHeaders = existing.includes('BuiltinHeaders');
   const hasSuppressDiag = existing.includes('pp_expects_filename');
-  const hasRemoveFlags = ESP_CLANGD_REMOVE_FLAGS.every((f) =>
-    existing.includes(f),
-  );
+  const hasRemoveFlags = ESP_CLANGD_REMOVE_FLAGS.every((f) => existing.includes(f));
   const hasAddFlags = ESP_CLANGD_ADD_FLAGS.every((f) => existing.includes(f));
   const hasIndex = existing.includes('Background: Build');
 
@@ -514,16 +512,10 @@ export async function ensureClangdConfig(projectDir) {
     cfParts.push('  BuiltinHeaders: QueryDriver');
   }
   if (useEspClangd && !hasAddFlags) {
-    cfParts.push(
-      '  Add:',
-      ...ESP_CLANGD_ADD_FLAGS.map((f) => `    - "${f}"`),
-    );
+    cfParts.push('  Add:', ...ESP_CLANGD_ADD_FLAGS.map((f) => `    - "${f}"`));
   }
   if (useEspClangd && !hasRemoveFlags) {
-    cfParts.push(
-      '  Remove:',
-      ...ESP_CLANGD_REMOVE_FLAGS.map((f) => `    - "${f}"`),
-    );
+    cfParts.push('  Remove:', ...ESP_CLANGD_REMOVE_FLAGS.map((f) => `    - "${f}"`));
   }
   if (cfParts.length > 0) {
     parts.push('CompileFlags:\n' + cfParts.join('\n'));
