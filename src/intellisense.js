@@ -447,6 +447,7 @@ async function findEspClangd() {
 const ESP_CLANGD_REMOVE_FLAGS = [
   '-misc-unused-parameters',
   '-mfix-esp32-psram-cache-issue',
+  '-mfix-esp32-psram-cache-strategy=*',
   '-fno-shrink-wrap',
   '-fno-tree-switch-conversion',
   '-fstrict-volatile-bitfields',
@@ -454,6 +455,8 @@ const ESP_CLANGD_REMOVE_FLAGS = [
   '-fipa-pta',
   '-march=*',
   '-mdisable-hardware-atomics',
+  '-mlongcalls',
+  '-mtext-section-literals',
   '-mtarget-align',
   '-mno-target-align',
 ];
