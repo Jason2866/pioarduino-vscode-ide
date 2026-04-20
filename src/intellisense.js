@@ -454,6 +454,7 @@ const ESP_CLANGD_REMOVE_FLAGS = [
   '-fipa-pta',
   '-march=*',
   '-mdisable-hardware-atomics',
+  '-mtarget-align',
   '-mno-target-align',
 ];
 
