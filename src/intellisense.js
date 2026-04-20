@@ -488,7 +488,7 @@ async function isEspressifProject(projectDir, observer) {
       return false;
     }
     const platform = config.getEnvPlatform(env);
-    return typeof platform === 'string' && platform.startsWith('espressif');
+    return typeof platform === 'string' && /espressif|esp32|esp8266/i.test(platform);
   } catch {
     return false;
   }
