@@ -443,17 +443,34 @@ async function findEspClangd() {
   return null;
 }
 
+// Flags that esp-clangd doesn't understand (ESP/GCC-specific machine flags).
+const ESP_CLANGD_REMOVE_FLAGS = [
+  '-misc-unused-parameters',
+  '-mfix-esp32-psram-cache-issue',
+  '-fno-shrink-wrap',
+  '-fno-tree-switch-conversion',
+  '-fstrict-volatile-bitfields',
+  '-free',
+  '-fipa-pta',
+  '-march=*',
+  '-mdisable-hardware-atomics',
+  '-mno-target-align',
+];
+
+const ESP_CLANGD_ADD_FLAGS = [
+  '-Wall',
+  '-Wextra',
+  '-Wunused-variable',
+  '-Wunused-function',
+  '-Wno-unused-parameter',
+  '-Wno-reserved-identifier',
+];
+
 /**
  * Ensure a .clangd config file exists in the project directory with
- * BuiltinHeaders: QueryDriver.
- *
- * By default clangd replaces the cross-compiler's built-in headers
- * (stddef.h, stdbool.h, etc.) with its own, which are built for the
- * host rather than the embedded target.  This causes false errors such
- * as "'stdbool.h' file not found" or libc++ vs libstdc++ mismatches.
- *
- * Setting BuiltinHeaders to QueryDriver tells clangd (≥ 21) to keep
- * the headers reported by --query-driver instead of substituting its own.
+ * BuiltinHeaders: QueryDriver and, when esp-clangd is used, the
+ * necessary Add/Remove flags for ESP-specific compiler options that
+ * upstream clangd does not understand.
  */
 export async function ensureClangdConfig(projectDir) {
   if (
@@ -464,6 +481,7 @@ export async function ensureClangdConfig(projectDir) {
     return;
   }
   const configPath = path.join(projectDir, '.clangd');
+  const useEspClangd = !!(await findEspClangd());
 
   let existing = '';
   try {
@@ -474,20 +492,51 @@ export async function ensureClangdConfig(projectDir) {
 
   const hasBuiltinHeaders = existing.includes('BuiltinHeaders');
   const hasSuppressDiag = existing.includes('pp_expects_filename');
+  const hasRemoveFlags = ESP_CLANGD_REMOVE_FLAGS.every((f) =>
+    existing.includes(f),
+  );
+  const hasAddFlags = ESP_CLANGD_ADD_FLAGS.every((f) => existing.includes(f));
+  const hasIndex = existing.includes('Background: Build');
 
-  // Already contains both directives – nothing to do
-  if (hasBuiltinHeaders && hasSuppressDiag) {
+  const needsEsp = useEspClangd && (!hasRemoveFlags || !hasAddFlags || !hasIndex);
+
+  // Already contains all required directives – nothing to do
+  if (hasBuiltinHeaders && hasSuppressDiag && !needsEsp) {
     return;
   }
 
   // Build only the missing parts
   const parts = [];
+
+  // CompileFlags block — collect all sub-keys into one block
+  const cfParts = [];
   if (!hasBuiltinHeaders) {
-    parts.push('CompileFlags:\n  BuiltinHeaders: QueryDriver');
+    cfParts.push('  BuiltinHeaders: QueryDriver');
   }
+  if (useEspClangd && !hasAddFlags) {
+    cfParts.push(
+      '  Add:',
+      ...ESP_CLANGD_ADD_FLAGS.map((f) => `    - "${f}"`),
+    );
+  }
+  if (useEspClangd && !hasRemoveFlags) {
+    cfParts.push(
+      '  Remove:',
+      ...ESP_CLANGD_REMOVE_FLAGS.map((f) => `    - "${f}"`),
+    );
+  }
+  if (cfParts.length > 0) {
+    parts.push('CompileFlags:\n' + cfParts.join('\n'));
+  }
+
   if (!hasSuppressDiag) {
     parts.push('Diagnostics:\n  Suppress: [pp_expects_filename]');
   }
+
+  if (useEspClangd && !hasIndex) {
+    parts.push('Index:\n  Background: Build\n  StandardLibrary: true');
+  }
+
   const block = parts.join('\n') + '\n';
 
   // Prepend the block (separated by ---) so we don't clobber user settings
