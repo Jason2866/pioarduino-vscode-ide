@@ -473,7 +473,28 @@ const ESP_CLANGD_ADD_FLAGS = [
  * necessary Add/Remove flags for ESP-specific compiler options that
  * upstream clangd does not understand.
  */
-export async function ensureClangdConfig(projectDir) {
+/**
+ * Detect whether the active environment targets an Espressif platform
+ * by inspecting the platform field in platformio.ini via the observer.
+ */
+async function isEspressifProject(projectDir, observer) {
+  if (!observer) {
+    return false;
+  }
+  try {
+    const config = await observer.getConfig();
+    const env = await observer.revealActiveEnvironment();
+    if (!env) {
+      return false;
+    }
+    const platform = config.getEnvPlatform(env);
+    return typeof platform === 'string' && platform.startsWith('espressif');
+  } catch {
+    return false;
+  }
+}
+
+export async function ensureClangdConfig(projectDir, observer) {
   if (
     getActiveBackendId() !== 'clangd' ||
     !projectDir ||
@@ -482,7 +503,8 @@ export async function ensureClangdConfig(projectDir) {
     return;
   }
   const configPath = path.join(projectDir, '.clangd');
-  const useEspClangd = !!(await findEspClangd());
+  const espClangd = await findEspClangd();
+  const useEspFlags = !!espClangd && (await isEspressifProject(projectDir, observer));
 
   let existing = '';
   try {
@@ -495,9 +517,11 @@ export async function ensureClangdConfig(projectDir) {
   const hasSuppressDiag = existing.includes('pp_expects_filename');
   const hasRemoveFlags = ESP_CLANGD_REMOVE_FLAGS.every((f) => existing.includes(f));
   const hasAddFlags = ESP_CLANGD_ADD_FLAGS.every((f) => existing.includes(f));
-  const hasIndex = existing.includes('Background: Build');
+  // Respect any existing Index.Background entry (user may have set Skip, etc.)
+  const hasIndexBackground = /^Index:\s*\n(?:.*\n)*?\s+Background:/m.test(existing);
 
-  const needsEsp = useEspClangd && (!hasRemoveFlags || !hasAddFlags || !hasIndex);
+  const needsEsp =
+    useEspFlags && (!hasRemoveFlags || !hasAddFlags || !hasIndexBackground);
 
   // Already contains all required directives – nothing to do
   if (hasBuiltinHeaders && hasSuppressDiag && !needsEsp) {
@@ -512,10 +536,10 @@ export async function ensureClangdConfig(projectDir) {
   if (!hasBuiltinHeaders) {
     cfParts.push('  BuiltinHeaders: QueryDriver');
   }
-  if (useEspClangd && !hasAddFlags) {
+  if (useEspFlags && !hasAddFlags) {
     cfParts.push('  Add:', ...ESP_CLANGD_ADD_FLAGS.map((f) => `    - "${f}"`));
   }
-  if (useEspClangd && !hasRemoveFlags) {
+  if (useEspFlags && !hasRemoveFlags) {
     cfParts.push('  Remove:', ...ESP_CLANGD_REMOVE_FLAGS.map((f) => `    - "${f}"`));
   }
   if (cfParts.length > 0) {
@@ -526,7 +550,7 @@ export async function ensureClangdConfig(projectDir) {
     parts.push('Diagnostics:\n  Suppress: [pp_expects_filename]');
   }
 
-  if (useEspClangd && !hasIndex) {
+  if (useEspFlags && !hasIndexBackground) {
     parts.push('Index:\n  Background: Build\n  StandardLibrary: true');
   }
 
