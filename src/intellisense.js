@@ -226,12 +226,32 @@ export async function fixupCompileCommands(projectDir, envDir) {
   ) {
     return;
   }
-  const srcPath = path.join(projectDir, 'compile_commands.json');
+  // For Arduino-as-component (ESP-IDF / CMake) projects, CMake generates its own
+  // compile_commands.json inside the env build dir.  PIO may also emit one at the
+  // project root via `pio run --target compiledb`.  Prefer the env-dir copy when
+  // it exists because that is the database clangd is configured to read (via
+  // --compile-commands-dir), then fall back to the project-root copy.
+  const rootPath = path.join(projectDir, 'compile_commands.json');
+  const envPath = envDir ? path.join(envDir, 'compile_commands.json') : undefined;
+
+  let srcPath;
   let raw;
-  try {
-    raw = await fs.readFile(srcPath, 'utf-8');
-  } catch {
-    return;
+
+  if (envPath) {
+    try {
+      raw = await fs.readFile(envPath, 'utf-8');
+      srcPath = envPath;
+    } catch {
+      // not found in envDir – try root
+    }
+  }
+  if (!raw) {
+    try {
+      raw = await fs.readFile(rootPath, 'utf-8');
+      srcPath = rootPath;
+    } catch {
+      return;
+    }
   }
 
   let entries;
@@ -403,10 +423,10 @@ export async function fixupCompileCommands(projectDir, envDir) {
   const destPath = path.join(destDir, 'compile_commands.json');
   await fs.writeFile(destPath, JSON.stringify(entries, null, 2) + '\n', 'utf-8');
 
-  // Remove the root copy when the file was moved to the env build dir
-  if (envDir && destPath !== srcPath) {
+  // Remove the root copy when the source was at root and we wrote to envDir
+  if (srcPath === rootPath && envDir && destPath !== rootPath) {
     try {
-      await fs.unlink(srcPath);
+      await fs.unlink(rootPath);
     } catch {
       // ignore – may already be gone
     }
