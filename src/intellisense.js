@@ -226,30 +226,28 @@ export async function fixupCompileCommands(projectDir, envDir) {
   ) {
     return;
   }
-  // For Arduino-as-component (ESP-IDF / CMake) projects, CMake generates its own
-  // compile_commands.json inside the env build dir.  PIO may also emit one at the
-  // project root via `pio run --target compiledb`.  Prefer the env-dir copy when
-  // it exists because that is the database clangd is configured to read (via
-  // --compile-commands-dir), then fall back to the project-root copy.
+  // Try project root first (PIO compiledb output), then fall back to the
+  // env build dir where CMake-based projects (Arduino-as-component) generate
+  // their own compile_commands.json.
   const rootPath = path.join(projectDir, 'compile_commands.json');
   const envPath = envDir ? path.join(envDir, 'compile_commands.json') : undefined;
 
   let srcPath;
   let raw;
 
-  if (envPath) {
-    try {
-      raw = await fs.readFile(envPath, 'utf-8');
-      srcPath = envPath;
-    } catch {
-      // not found in envDir – try root
-    }
-  }
-  if (!raw) {
-    try {
-      raw = await fs.readFile(rootPath, 'utf-8');
-      srcPath = rootPath;
-    } catch {
+  try {
+    raw = await fs.readFile(rootPath, 'utf-8');
+    srcPath = rootPath;
+  } catch {
+    // root not found – try envDir (CMake-generated)
+    if (envPath) {
+      try {
+        raw = await fs.readFile(envPath, 'utf-8');
+        srcPath = envPath;
+      } catch {
+        return;
+      }
+    } else {
       return;
     }
   }
@@ -421,9 +419,21 @@ export async function fixupCompileCommands(projectDir, envDir) {
   const destDir = envDir || projectDir;
   await fs.mkdir(destDir, { recursive: true });
   const destPath = path.join(destDir, 'compile_commands.json');
+
+  // When the source was the project-generated file in envDir, preserve the
+  // original so it is not lost after post-processing.
+  if (srcPath === destPath) {
+    const backupPath = destPath + '.bak';
+    try {
+      await fs.copyFile(srcPath, backupPath);
+    } catch {
+      // best-effort backup
+    }
+  }
+
   await fs.writeFile(destPath, JSON.stringify(entries, null, 2) + '\n', 'utf-8');
 
-  // Remove the root copy when the source was at root and we wrote to envDir
+  // Remove the root copy when the file was moved to the env build dir
   if (srcPath === rootPath && envDir && destPath !== rootPath) {
     try {
       await fs.unlink(rootPath);
