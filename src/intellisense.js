@@ -718,6 +718,11 @@ export function invalidateIdfCache(projectDir) {
       _idfCache.delete(key);
     }
   }
+  const watcher = _idfIniWatchers.get(projectDir);
+  if (watcher) {
+    watcher.dispose();
+    _idfIniWatchers.delete(projectDir);
+  }
 }
 
 function _ensureIniWatcher(projectDir) {
