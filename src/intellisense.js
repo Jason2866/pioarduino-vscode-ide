@@ -214,29 +214,31 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
 
   // Check the processed clangd copy first – if it exists we are done.
   const clangdPath = path.join(projectDir, '.cache', 'clangd', 'compile_commands.json');
-  try {
-    await fs.access(clangdPath);
-    return; // processed copy already exists
-  } catch {
-    // not found – check if an original exists that still needs processing
-  }
-
-  // If an original compile_commands.json exists (env build dir or project
-  // root) but the processed copy does not, trigger a rebuild so
-  // fixupCompileCommands produces the clangd copy.
   const origCandidates = [
     ...(envDir ? [path.join(envDir, 'compile_commands.json')] : []),
     path.join(projectDir, 'compile_commands.json'),
   ];
+
+  let clangdStat = null;
+  try {
+    clangdStat = await fs.stat(clangdPath);
+  } catch {
+    // processed copy missing
+  }
+
   for (const ccPath of origCandidates) {
     try {
-      await fs.access(ccPath);
-      // Original exists but no processed copy – rebuild to create it.
-      observer.rebuildIndex({ force: true });
+      const origStat = await fs.stat(ccPath);
+      if (!clangdStat || origStat.mtimeMs > clangdStat.mtimeMs) {
+        await fixupCompileCommands(projectDir, envDir);
+      }
       return;
     } catch {
       // not found here
     }
+  }
+  if (clangdStat) {
+    return; // processed copy exists and no source DB was found
   }
   // No compile_commands.json at all – rebuild from scratch.
   observer.rebuildIndex({ force: true });
@@ -561,8 +563,15 @@ export async function fixupCompileCommands(
       return false;
     }
     const normalizedFile = path.normalize(e.file);
+    const relativeToProject = path.relative(normalizedProjectDir, normalizedFile);
+    const isProjectFile =
+      relativeToProject === '' ||
+      (!!relativeToProject &&
+        relativeToProject !== '..' &&
+        !relativeToProject.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relativeToProject));
     return (
-      normalizedFile.startsWith(normalizedProjectDir) &&
+      isProjectFile &&
       !normalizedFile.includes(path.normalize(pioBuildDir.slice(1))) &&
       !normalizedFile.includes(path.normalize(pioCoreDir.slice(1)))
     );
