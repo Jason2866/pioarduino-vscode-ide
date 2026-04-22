@@ -194,6 +194,14 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
   ) {
     return;
   }
+
+  // ESP-IDF and Arduino-as-component projects rely on CMake / Ninja to produce
+  // compile_commands.json.  Do not trigger `pio run --target compiledb` for
+  // these project types — the build system already owns that file.
+  if (await isIdfProject(observer)) {
+    return;
+  }
+  
   // Check the processed clangd copy first – if it exists we are done.
   const clangdPath = path.join(projectDir, '.cache', 'clangd', 'compile_commands.json');
   try {
@@ -519,6 +527,38 @@ async function isEspressifProject(projectDir, observer) {
     }
     const platform = config.getEnvPlatform(env);
     return typeof platform === 'string' && /espressif|esp32|esp8266/i.test(platform);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect whether the active environment uses ESP-IDF — either as a standalone
+ * framework or as the base for Arduino-as-a-component.
+ *
+ * For these project types the build system (CMake / Ninja) already generates
+ * compile_commands.json natively, so pioarduino-vscode-ide must not trigger
+ * `pio run --target compiledb` and should not post-process the database.
+ */
+export async function isIdfProject(observer) {
+  if (!observer) {
+    return false;
+  }
+  try {
+    const config = await observer.getConfig();
+    const env = await observer.revealActiveEnvironment();
+    if (!env) {
+      return false;
+    }
+    // `getEnvFrameworks` is a shorthand when available; fall back to the
+    // generic `get` accessor used by pioarduino-node-helpers config objects.
+    const frameworks =
+      typeof config.getEnvFrameworks === 'function'
+        ? config.getEnvFrameworks(env)
+        : config.get([`env:${env}`, 'framework']);
+    const frameworkStr =
+      (Array.isArray(frameworks) ? frameworks.join(',') : frameworks) || '';
+    return /\bespidf\b/i.test(frameworkStr);
   } catch {
     return false;
   }
