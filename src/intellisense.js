@@ -290,7 +290,13 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
   const variantDirs = new Set();
   const isInsideDir = (parent, child) => {
     const rel = path.relative(path.normalize(parent), path.normalize(child));
-    return rel === '' || (!!rel && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+    return (
+      rel === '' ||
+      (!!rel &&
+        rel !== '..' &&
+        !rel.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(rel))
+    );
   };
   for (const entry of entries) {
     const args = entry.arguments || [];
