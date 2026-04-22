@@ -291,8 +291,8 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
   for (const entry of entries) {
     const args = entry.arguments || [];
     for (const a of args) {
-      if (a.startsWith('-I') && a.includes(variantsBase)) {
-        variantDirs.add(a.startsWith('-I/') ? a.slice(2) : a);
+      if (typeof a === 'string' && a.startsWith('-I') && a.includes(variantsBase)) {
+        variantDirs.add(a.slice(2)); // always strip the "-I" prefix
       }
     }
   }
