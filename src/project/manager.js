@@ -99,7 +99,7 @@ export default class ProjectManager {
           const envDir = env ? path.join(projectDir, '.pio', 'build', env) : undefined;
           await fixupCompileCommands(projectDir, envDir);
           await ensureClangdConfig(projectDir, obs);
-          await ensureClangdArgs(projectDir, envDir);
+          await ensureClangdArgs(projectDir);
           await ensureLaunchJson(projectDir);
           await notifyRescanBackend();
         },
@@ -255,7 +255,7 @@ export default class ProjectManager {
         ? path.join(projectDir, '.pio', 'build', activeEnv)
         : undefined;
       await ensureCompileCommands(projectDir, activeObs, envDir);
-      await ensureClangdArgs(projectDir, envDir);
+      await ensureClangdArgs(projectDir);
       this._taskManager = new ProjectTaskManager(projectDir, observer);
       this.internalSubscriptions.push(
         this._taskManager,
