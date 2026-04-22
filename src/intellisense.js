@@ -502,6 +502,7 @@ const ESP_CLANGD_REMOVE_FLAGS = [
   '-mtext-section-literals',
   '-mtarget-align',
   '-mno-target-align',
+  '-isysroot',
 ];
 
 const ESP_CLANGD_ADD_FLAGS = [
@@ -591,6 +592,7 @@ function _ensureIniWatcher(projectDir) {
 // .ninja_log in envDir is also IDF-specific.
 async function isIdfProjectByFilesystem(projectDir, envDir) {
   const checks = [
+    projectDir ? path.join(projectDir, 'sdkconfig') : null,
     envDir ? path.join(envDir, 'CMakeCache.txt') : null,
     envDir ? path.join(envDir, '.ninja_log') : null,
   ].filter(Boolean);

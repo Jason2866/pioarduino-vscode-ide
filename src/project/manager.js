@@ -113,7 +113,10 @@ export default class ProjectManager {
           const env = obs ? await obs.revealActiveEnvironment() : undefined;
           const envDir = env ? path.join(projectDir, '.pio', 'build', env) : undefined;
 
-          await fixupCompileCommands(projectDir, envDir);
+          const isIdf = await isIdfProject(obs, envDir);
+          await fixupCompileCommands(projectDir, envDir, {
+            allowRootFallback: !isIdf,
+          });
           await ensureClangdConfig(projectDir, obs);
           await ensureClangdArgs(projectDir);
           await ensureLaunchJson(projectDir);
@@ -265,7 +268,11 @@ export default class ProjectManager {
       if (currentProjectDir && currentProjectDir !== projectDir) {
         invalidateIdfCache(currentProjectDir);
       }
-      this._activeProjectIsIdf = await isIdfProject(observer);
+      const selectedEnv = await observer.revealActiveEnvironment();
+      const selectedEnvDir = selectedEnv
+        ? path.join(projectDir, '.pio', 'build', selectedEnv)
+        : undefined;
+      this._activeProjectIsIdf = await isIdfProject(observer, selectedEnvDir);
       await this._pool.switch(projectDir);
       const activeObs = this._pool.getActiveObserver();
       const activeEnv = activeObs
