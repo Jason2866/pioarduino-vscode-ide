@@ -241,6 +241,113 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
  *  4. Add synthetic entries for header files included from other directories
  *     so clangd can match them (it uses directory proximity heuristics).
  */
+/**
+ * For Arduino-as-component projects (framework = arduino, espidf), the
+ * CMake build system generates compile_commands.json entries for project
+ * source files without the Arduino core include paths.  This means clangd
+ * cannot resolve `#include "Arduino.h"` or any other Arduino core header.
+ *
+ * This function detects the Arduino core directories by scanning the
+ * packages directory for `framework-arduinoespressif32`, then injects
+ * the missing `-I` flags into every project entry that lacks them.
+ */
+async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
+  // Find the Arduino core directory (framework-arduinoespressif32/cores/esp32)
+  let arduinoCoresDir = null;
+  try {
+    const dirs = await fs.readdir(packagesDir);
+    for (const d of dirs) {
+      if (d.startsWith('framework-arduinoespressif32')) {
+        const coresCandidate = path.join(packagesDir, d, 'cores', 'esp32');
+        try {
+          await fs.access(path.join(coresCandidate, 'Arduino.h'));
+          arduinoCoresDir = path.join(packagesDir, d);
+          break;
+        } catch {
+          // no Arduino.h here
+        }
+      }
+    }
+  } catch {
+    return; // packagesDir unreadable
+  }
+
+  if (!arduinoCoresDir) {
+    return; // no Arduino framework installed
+  }
+
+  const coresInclude = path.join(arduinoCoresDir, 'cores', 'esp32');
+
+  // Collect all variant directories that appear in any entry's arguments
+  // (the correct variant is already used by Arduino library entries).
+  const variantsBase = path.join(arduinoCoresDir, 'variants');
+  const variantDirs = new Set();
+  for (const entry of entries) {
+    const args = entry.arguments || [];
+    for (const a of args) {
+      if (a.startsWith('-I') && a.includes(variantsBase)) {
+        variantDirs.add(a.startsWith('-I/') ? a.slice(2) : a);
+      }
+    }
+  }
+
+  // If no variant was found in existing entries, try to detect from the
+  // board variant used in the build directory name.
+  if (variantDirs.size === 0) {
+    try {
+      const variants = await fs.readdir(variantsBase);
+      // Check if any entry's arguments contain a SOC target hint
+      for (const entry of entries) {
+        const args = entry.arguments || [];
+        const argsStr = args.join(' ');
+        for (const v of variants) {
+          if (argsStr.includes(`CONFIG_IDF_TARGET_${v.toUpperCase()}`)) {
+            const variantPath = path.join(variantsBase, v);
+            try {
+              await fs.access(variantPath);
+              variantDirs.add(variantPath);
+            } catch {
+              // variant dir doesn't exist
+            }
+            break;
+          }
+        }
+        if (variantDirs.size > 0) {
+          break;
+        }
+      }
+    } catch {
+      // variants dir unreadable
+    }
+  }
+
+  // Build the list of -I flags to inject
+  const injectFlags = [`-I${coresInclude}`];
+  for (const v of variantDirs) {
+    injectFlags.push(`-I${v}`);
+  }
+
+  // Inject into project source entries that are missing the Arduino core path
+  for (const entry of entries) {
+    if (!entry.file || !entry.arguments) {
+      continue;
+    }
+    // Only patch project source files, not framework/library files
+    if (!entry.file.startsWith(projectDir)) {
+      continue;
+    }
+    const argsStr = entry.arguments.join('\0');
+    if (argsStr.includes(coresInclude)) {
+      continue; // already has Arduino core includes
+    }
+
+    // Insert the flags before the source file argument (last -c <file>)
+    const cIdx = entry.arguments.lastIndexOf('-c');
+    const insertAt = cIdx !== -1 ? cIdx : entry.arguments.length;
+    entry.arguments.splice(insertAt, 0, ...injectFlags);
+  }
+}
+
 export async function fixupCompileCommands(
   projectDir,
   envDir,
@@ -378,7 +485,14 @@ export async function fixupCompileCommands(
     delete entry.command;
   }
 
-  // 3. Add synthetic entries for project header/source files that aren't in
+  // 3. For Arduino-as-component projects (framework = arduino, espidf), the
+  //    CMake-generated compile_commands.json for project src/ files does not
+  //    include the Arduino core headers (cores/esp32, variants/<variant>).
+  //    Scan all entries for Arduino core include paths and inject them into
+  //    project entries that are missing them.
+  await injectArduinoCoreIncludes(entries, projectDir, packagesDir);
+
+  // 4. Add synthetic entries for project header/source files that aren't in
   //    the compilation database. clangd uses directory proximity to match
   //    headers to compile commands; files in directories like usermods/ that
   //    have no .cpp entry nearby get no flags and lose all IntelliSense.
