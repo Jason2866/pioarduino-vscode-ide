@@ -533,6 +533,25 @@ async function isEspressifProject(projectDir, observer) {
   }
 }
 
+// After a first build, CMakeCache.txt in envDir is IDF-specific (CMake build system).
+// .ninja_log in envDir is also IDF-specific.
+async function isIdfProjectByFilesystem(projectDir, envDir) {
+  const checks = [
+    envDir ? path.join(envDir, 'CMakeCache.txt') : null,
+    envDir ? path.join(envDir, '.ninja_log') : null,
+  ].filter(Boolean);
+
+  for (const p of checks) {
+    try {
+      await fs.access(p);
+      return true; // file exists → IDF
+    } catch {
+      // not found, try next
+    }
+  }
+  return false;
+}
+
 /**
  * Detect whether the active environment uses ESP-IDF — either as a standalone
  * framework or as the base for Arduino-as-a-component.
@@ -542,27 +561,46 @@ async function isEspressifProject(projectDir, observer) {
  * `pio run --target compiledb`.  Post-processing (fixupCompileCommands) must
  * still run to copy/rewrite the CMake-generated file into .cache/clangd/.
  */
-export async function isIdfProject(observer) {
+export async function isIdfProject(observer, envDir) {
   if (!observer) {
     return false;
   }
   try {
-    const config = await observer.getConfig();
     const env = await observer.revealActiveEnvironment();
     if (!env) {
       return false;
     }
-    // `getEnvFrameworks` is a shorthand when available; fall back to the
-    // generic `get` accessor used by pioarduino-node-helpers config objects.
-    const frameworks =
-      typeof config.getEnvFrameworks === 'function'
-        ? config.getEnvFrameworks(env)
-        : config.get([`env:${env}`, 'framework']);
-    const frameworkStr =
-      (Array.isArray(frameworks) ? frameworks.join(',') : frameworks) || '';
-    return /\bespidf\b/i.test(frameworkStr);
+
+    const projectDir = observer.projectDir;
+    const sectionKey = `env:${env}`;
+    const script = `
+import json
+from platformio.public import ProjectConfig
+config = ProjectConfig()
+try:
+    framework = config.get('${sectionKey}', 'framework', default='') or ''
+except Exception:
+    framework = ''
+print(json.dumps({'framework': framework}))
+`.trim();
+
+    const output = await pioNodeHelpers.core.getCorePythonCommandOutput(
+      ['-c', script],
+      { projectDir },
+    );
+    const data = JSON.parse(output.trim());
+    if (/\bespidf\b/i.test(data.framework || '')) {
+      return true;
+    }
+    // Fallback: check build artifacts (reliable post-first-build, no subprocess)
+    return isIdfProjectByFilesystem(projectDir, envDir);
   } catch {
-    return false;
+    // Python subprocess failed — still try filesystem
+    try {
+      return isIdfProjectByFilesystem(observer.projectDir, envDir);
+    } catch {
+      return false;
+    }
   }
 }
 
