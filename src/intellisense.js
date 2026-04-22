@@ -201,7 +201,7 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
   if (await isIdfProject(observer)) {
     return;
   }
-  
+
   // Check the processed clangd copy first – if it exists we are done.
   const clangdPath = path.join(projectDir, '.cache', 'clangd', 'compile_commands.json');
   try {
