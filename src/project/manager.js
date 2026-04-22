@@ -46,7 +46,7 @@ export default class ProjectManager {
     const idfAwareBackend = {
       ...activeBackend,
       rebuildArgs(env) {
-        if (self._activeProjectIsIdf) {
+        if (activeBackend.id === 'clangd' && self._activeProjectIsIdf) {
           // Run a no-op PIO command for IDF — prevents compiledb while still
           // triggering onDidRebuildIndex → fixupCompileCommands for the clangd cache.
           return ['--version'];

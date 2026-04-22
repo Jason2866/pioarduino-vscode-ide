@@ -290,7 +290,17 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
   const variantDirs = new Set();
   for (const entry of entries) {
     const args = entry.arguments || [];
-    for (const a of args) {
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (
+        a === '-I' &&
+        typeof args[i + 1] === 'string' &&
+        args[i + 1].includes(variantsBase)
+      ) {
+        variantDirs.add(args[i + 1]);
+        i++;
+        continue;
+      }
       if (typeof a === 'string' && a.startsWith('-I') && a.includes(variantsBase)) {
         variantDirs.add(a.slice(2)); // always strip the "-I" prefix
       }
@@ -357,14 +367,15 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
       continue;
     }
     const argsStr = entry.arguments.join('\0');
-    if (argsStr.includes(coresInclude)) {
-      continue; // already has Arduino core includes
+    const missingFlags = injectFlags.filter((flag) => !argsStr.includes(flag.slice(2)));
+    if (missingFlags.length === 0) {
+      continue; // already has all Arduino includes
     }
 
     // Insert the flags before the source file argument (last -c <file>)
     const cIdx = entry.arguments.lastIndexOf('-c');
     const insertAt = cIdx !== -1 ? cIdx : entry.arguments.length;
-    entry.arguments.splice(insertAt, 0, ...injectFlags);
+    entry.arguments.splice(insertAt, 0, ...missingFlags);
   }
 }
 
