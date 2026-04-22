@@ -533,6 +533,53 @@ async function isEspressifProject(projectDir, observer) {
   }
 }
 
+// ── In-memory cache for isIdfProject results ──
+// Keyed by `${projectDir}::${env}`, values are { result: boolean, ts: number }.
+const _idfCache = new Map();
+const _IDF_CACHE_TTL_MS = 30_000; // 30 seconds
+const _idfIniWatchers = new Map(); // projectDir → Disposable
+
+function _idfCacheKey(projectDir, env) {
+  return `${projectDir}::${env}`;
+}
+
+function _idfCacheGet(key) {
+  const entry = _idfCache.get(key);
+  if (entry && Date.now() - entry.ts < _IDF_CACHE_TTL_MS) {
+    return entry.result;
+  }
+  _idfCache.delete(key);
+  return undefined;
+}
+
+function _idfCacheSet(key, result) {
+  _idfCache.set(key, { result, ts: Date.now() });
+}
+
+/**
+ * Invalidate all cache entries whose key starts with the given projectDir.
+ */
+export function invalidateIdfCache(projectDir) {
+  for (const key of _idfCache.keys()) {
+    if (key.startsWith(`${projectDir}::`)) {
+      _idfCache.delete(key);
+    }
+  }
+}
+
+function _ensureIniWatcher(projectDir) {
+  if (_idfIniWatchers.has(projectDir)) {
+    return;
+  }
+  const pattern = new vscode.RelativePattern(projectDir, 'platformio.ini');
+  const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+  const handler = () => invalidateIdfCache(projectDir);
+  watcher.onDidChange(handler);
+  watcher.onDidCreate(handler);
+  watcher.onDidDelete(handler);
+  _idfIniWatchers.set(projectDir, watcher);
+}
+
 // After a first build, CMakeCache.txt in envDir is IDF-specific (CMake build system).
 // .ninja_log in envDir is also IDF-specific.
 async function isIdfProjectByFilesystem(projectDir, envDir) {
@@ -572,6 +619,17 @@ export async function isIdfProject(observer, envDir) {
     }
 
     const projectDir = observer.projectDir;
+
+    // ── Cache lookup ──
+    const cacheKey = _idfCacheKey(projectDir, env);
+    const cached = _idfCacheGet(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    // Watch platformio.ini for changes so we can invalidate
+    _ensureIniWatcher(projectDir);
+
     const sectionKey = `env:${env}`;
     const script = `
 import json
@@ -590,14 +648,23 @@ print(json.dumps({'framework': framework}))
     );
     const data = JSON.parse(output.trim());
     if (/\bespidf\b/i.test(data.framework || '')) {
+      _idfCacheSet(cacheKey, true);
       return true;
     }
     // Fallback: check build artifacts (reliable post-first-build, no subprocess)
-    return isIdfProjectByFilesystem(projectDir, envDir);
+    const fsResult = await isIdfProjectByFilesystem(projectDir, envDir);
+    _idfCacheSet(cacheKey, fsResult);
+    return fsResult;
   } catch {
     // Python subprocess failed — still try filesystem
     try {
-      return isIdfProjectByFilesystem(observer.projectDir, envDir);
+      const projectDir = observer.projectDir;
+      const env = await observer.revealActiveEnvironment().catch(() => null);
+      const fsResult = await isIdfProjectByFilesystem(projectDir, envDir);
+      if (env) {
+        _idfCacheSet(_idfCacheKey(projectDir, env), fsResult);
+      }
+      return fsResult;
     } catch {
       return false;
     }

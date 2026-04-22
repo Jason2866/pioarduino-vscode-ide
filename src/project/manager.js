@@ -16,6 +16,7 @@ import {
   ensureLaunchJson,
   fixupCompileCommands,
   getActiveBackend,
+  invalidateIdfCache,
   isIdfProject,
   notifyRescanBackend,
 } from '../intellisense';
@@ -261,6 +262,9 @@ export default class ProjectManager {
       currentEnv !== observer.getSelectedEnv()
     ) {
       disposeSubscriptions(this.internalSubscriptions);
+      if (currentProjectDir && currentProjectDir !== projectDir) {
+        invalidateIdfCache(currentProjectDir);
+      }
       this._activeProjectIsIdf = await isIdfProject(observer);
       await this._pool.switch(projectDir);
       const activeObs = this._pool.getActiveObserver();
