@@ -48,7 +48,7 @@ export default class ProjectManager {
         if (self._activeProjectIsIdf) {
           // Run a no-op PIO command for IDF — prevents compiledb while still
           // triggering onDidRebuildIndex → fixupCompileCommands for the clangd cache.
-          return ['system', 'info', '--json-output'];
+          return ['--version'];
         }
         return activeBackend.rebuildArgs(env);
       },

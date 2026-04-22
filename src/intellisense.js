@@ -198,7 +198,7 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
   // ESP-IDF and Arduino-as-component projects rely on CMake / Ninja to produce
   // compile_commands.json.  Do not trigger `pio run --target compiledb` for
   // these project types — the build system already owns that file.
-  if (await isIdfProject(observer)) {
+  if (await isIdfProject(observer, envDir)) {
     await fixupCompileCommands(projectDir, envDir);
     return;
   }
@@ -445,7 +445,7 @@ export async function fixupCompileCommands(projectDir, envDir) {
   await fs.writeFile(destPath, JSON.stringify(entries, null, 2) + '\n', 'utf-8');
 
   vscode.window.showInformationMessage(
-    `PlatformIO: compile_commands.json processed for clangd (${entries.length} entries)`,
+    `Processing ${entries.length} entries from compile_commands.json for clangd `,
   );
 }
 
