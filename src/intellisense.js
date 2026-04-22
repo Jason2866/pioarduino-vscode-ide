@@ -538,7 +538,8 @@ async function isEspressifProject(projectDir, observer) {
  *
  * For these project types the build system (CMake / Ninja) already generates
  * compile_commands.json natively, so pioarduino-vscode-ide must not trigger
- * `pio run --target compiledb` and should not post-process the database.
+ * `pio run --target compiledb`.  Post-processing (fixupCompileCommands) must
+ * still run to copy/rewrite the CMake-generated file into .cache/clangd/.
  */
 export async function isIdfProject(observer) {
   if (!observer) {
