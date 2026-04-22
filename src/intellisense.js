@@ -22,6 +22,9 @@ function shellTokenize(cmd) {
   return shellTokenizeImpl(cmd, IS_WINDOWS);
 }
 
+/** Normalize a filesystem path to forward slashes for use in compiler arguments. */
+const toFwd = IS_WINDOWS ? (p) => p.split(path.sep).join('/') : (p) => p;
+
 /** Include-path flags that accept a directory argument (longest first). */
 const INCLUDE_FLAGS = ['-idirafter', '-isystem', '-iquote', '-I'];
 
@@ -76,7 +79,9 @@ async function absolutizeIncludes(args, dir) {
     const sepDirMatch = INCLUDE_FLAGS.find((f) => a === f);
     if (sepDirMatch && i + 1 < args.length) {
       if (!path.isAbsolute(args[i + 1])) {
-        args[i + 1] = path.join(dir, args[i + 1]);
+        args[i + 1] = toFwd(path.join(dir, args[i + 1]));
+      } else {
+        args[i + 1] = toFwd(args[i + 1]);
       }
       i++;
       continue;
@@ -100,7 +105,9 @@ async function absolutizeIncludes(args, dir) {
           }
         }
         // Fallback: resolve relative to compilation dir (should be rare).
-        args[i + 1] = resolved ?? path.join(dir, rel);
+        args[i + 1] = toFwd(resolved ?? path.join(dir, rel));
+      } else {
+        args[i + 1] = toFwd(args[i + 1]);
       }
       i++;
       continue;
@@ -111,7 +118,9 @@ async function absolutizeIncludes(args, dir) {
       if (a.startsWith(flag) && a.length > flag.length) {
         const v = a.slice(flag.length);
         if (!path.isAbsolute(v)) {
-          args[i] = flag + path.join(dir, v);
+          args[i] = flag + toFwd(path.join(dir, v));
+        } else {
+          args[i] = flag + toFwd(v);
         }
         break;
       }
@@ -350,8 +359,6 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
   }
 
   // Build the list of -I flags to inject
-  const toFwd = (p) => p.split(path.sep).join('/');
-
   const injectFlags = [`-I${toFwd(coresInclude)}`];
   for (const v of variantDirs) {
     injectFlags.push(`-I${toFwd(v)}`);
@@ -499,11 +506,12 @@ export async function fixupCompileCommands(
   const existingFiles = new Set();
   for (const entry of entries) {
     const dir = entry.directory || projectDir;
+    entry.directory = toFwd(dir);
 
     if (entry.file && !path.isAbsolute(entry.file)) {
-      entry.file = path.join(dir, entry.file);
+      entry.file = toFwd(path.join(dir, entry.file));
     } else if (entry.file) {
-      entry.file = path.normalize(entry.file);
+      entry.file = toFwd(path.normalize(entry.file));
     }
     existingFiles.add(path.normalize(entry.file));
 
@@ -518,8 +526,10 @@ export async function fixupCompileCommands(
     if (compiler && !compiler.includes('/') && !compiler.includes('\\')) {
       const resolved = await resolveCompiler(compiler);
       if (resolved) {
-        args[0] = resolved;
+        args[0] = toFwd(resolved);
       }
+    } else if (compiler) {
+      args[0] = toFwd(compiler);
     }
 
     // 2. Convert relative include paths to absolute
@@ -997,7 +1007,7 @@ export async function ensureClangdArgs(projectDir) {
   // --query-driver: let clangd query PlatformIO cross-compilers for built-in
   // include paths (C++ stdlib, GCC internals, sysroot). Without this, clangd
   // can't resolve system headers for embedded targets like xtensa, arm, riscv.
-  const pioFwd = pioNodeHelpers.core.getCoreDir().split(path.sep).join('/');
+  const pioFwd = toFwd(pioNodeHelpers.core.getCoreDir());
   const queryDriverGlob = [
     `${pioFwd}/packages/toolchain-*/bin/*`,
     `${pioFwd}/packages/tool-*/bin/*`,
