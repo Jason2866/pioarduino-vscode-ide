@@ -199,7 +199,7 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
   // compile_commands.json.  Do not trigger `pio run --target compiledb` for
   // these project types — the build system already owns that file.
   if (await isIdfProject(observer, envDir)) {
-    await fixupCompileCommands(projectDir, envDir);
+    await fixupCompileCommands(projectDir, envDir, { allowRootFallback: false });
     return;
   }
 
@@ -241,7 +241,11 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
  *  4. Add synthetic entries for header files included from other directories
  *     so clangd can match them (it uses directory proximity heuristics).
  */
-export async function fixupCompileCommands(projectDir, envDir) {
+export async function fixupCompileCommands(
+  projectDir,
+  envDir,
+  { allowRootFallback = true } = {},
+) {
   if (
     getActiveBackendId() !== 'clangd' ||
     !projectDir ||
@@ -263,6 +267,9 @@ export async function fixupCompileCommands(projectDir, envDir) {
     } catch {
       // not found in envDir – try root
     }
+  }
+  if (!raw && !allowRootFallback) {
+    return;
   }
   if (!raw) {
     try {
@@ -633,17 +640,19 @@ export async function isIdfProject(observer, envDir) {
     const sectionKey = `env:${env}`;
     const script = `
 import json
+import sys
 from platformio.public import ProjectConfig
+section_key = sys.argv[1]
 config = ProjectConfig()
 try:
-    framework = config.get('${sectionKey}', 'framework', default='') or ''
+    framework = config.get(section_key, 'framework', default='') or ''
 except Exception:
     framework = ''
 print(json.dumps({'framework': framework}))
 `.trim();
 
     const output = await pioNodeHelpers.core.getCorePythonCommandOutput(
-      ['-c', script],
+      ['-c', script, sectionKey],
       { projectDir },
     );
     const data = JSON.parse(output.trim());
