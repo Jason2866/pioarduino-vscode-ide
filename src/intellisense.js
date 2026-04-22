@@ -350,22 +350,19 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
   }
 
   // Build the list of -I flags to inject
-  const injectFlags = [`-I${coresInclude}`];
-  for (const v of variantDirs) {
-    injectFlags.push(`-I${v}`);
+  const toFwd = (p) => p.split(path.sep).join('/');
 
-    // Also inject the corresponding per-chip include dir from the libs package
-    // (framework-arduinoespressif32-libs/<chip_variant>/include).
-    // This directory contains headers for the pre-compiled Arduino library
-    // archives (WiFi, BLE, etc.) that are not present in the main framework.
+  const injectFlags = [`-I${toFwd(coresInclude)}`];
+  for (const v of variantDirs) {
+    injectFlags.push(`-I${toFwd(v)}`);
     if (arduinoLibsDir) {
-      const chipVariant = path.basename(v); // e.g. "esp32s3", "esp32c3"
+      const chipVariant = path.basename(v);
       const libsInclude = path.join(arduinoLibsDir, chipVariant, 'include');
       try {
         await fs.access(libsInclude);
-        injectFlags.push(`-I${libsInclude}`);
+        injectFlags.push(`-I${toFwd(libsInclude)}`);
       } catch {
-        // no include dir for this chip variant in the libs package — skip
+        /* skip */
       }
     }
   }
@@ -505,8 +502,10 @@ export async function fixupCompileCommands(
 
     if (entry.file && !path.isAbsolute(entry.file)) {
       entry.file = path.join(dir, entry.file);
+    } else if (entry.file) {
+      entry.file = path.normalize(entry.file);
     }
-    existingFiles.add(entry.file);
+    existingFiles.add(path.normalize(entry.file));
 
     if (!entry.command && !entry.arguments) {
       continue;
@@ -546,14 +545,18 @@ export async function fixupCompileCommands(
   //    missing file.
   const pioBuildDir = `${path.sep}.pio${path.sep}`;
   const pioCoreDir = `${path.sep}.platformio${path.sep}`;
-  const projectSrcEntries = entries.filter(
-    (e) =>
-      e.file &&
-      (e.arguments || e.command) &&
-      e.file.startsWith(projectDir) &&
-      !e.file.includes(pioBuildDir) &&
-      !e.file.includes(pioCoreDir),
-  );
+  const normalizedProjectDir = path.normalize(projectDir);
+  const projectSrcEntries = entries.filter((e) => {
+    if (!e.file || (!e.arguments && !e.command)) {
+      return false;
+    }
+    const normalizedFile = path.normalize(e.file);
+    return (
+      normalizedFile.startsWith(normalizedProjectDir) &&
+      !normalizedFile.includes(path.normalize(pioBuildDir.slice(1))) &&
+      !normalizedFile.includes(path.normalize(pioCoreDir.slice(1)))
+    );
+  });
 
   // Pick the entry with the richest include set (most -I flags) as template
   let templateEntry = projectSrcEntries[0];
@@ -994,12 +997,10 @@ export async function ensureClangdArgs(projectDir) {
   // --query-driver: let clangd query PlatformIO cross-compilers for built-in
   // include paths (C++ stdlib, GCC internals, sysroot). Without this, clangd
   // can't resolve system headers for embedded targets like xtensa, arm, riscv.
-  const pioDir = pioNodeHelpers.core.getCoreDir();
-  const sep = IS_WINDOWS ? '\\' : '/';
-  const glob = IS_WINDOWS ? '*\\bin\\*' : '*/bin/*';
+  const pioFwd = pioNodeHelpers.core.getCoreDir().split(path.sep).join('/');
   const queryDriverGlob = [
-    `${pioDir}${sep}packages${sep}toolchain-${glob}`,
-    `${pioDir}${sep}packages${sep}tool-${glob}`,
+    `${pioFwd}/packages/toolchain-*/bin/*`,
+    `${pioFwd}/packages/tool-*/bin/*`,
   ].join(',');
   const queryDriverFlag = `--query-driver=${queryDriverGlob}`;
   changed = upsertArg(newArgs, '--query-driver=', queryDriverFlag) || changed;
