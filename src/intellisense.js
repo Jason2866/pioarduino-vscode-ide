@@ -252,17 +252,23 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
  * the missing `-I` flags into every project entry that lacks them.
  */
 async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
-  // Find the Arduino core directory (framework-arduinoespressif32/cores/esp32)
+  // Find both Arduino packages:
+  //   framework-arduinoespressif32       → cores/esp32, variants/<chip>
+  //   framework-arduinoespressif32-libs  → <chip_variant>/include  (pre-compiled libs headers)
   let arduinoCoresDir = null;
+  let arduinoLibsDir = null;
   try {
     const dirs = await fs.readdir(packagesDir);
     for (const d of dirs) {
-      if (d.startsWith('framework-arduinoespressif32')) {
+      if (d.startsWith('framework-arduinoespressif32-libs')) {
+        // Capture the libs package (check before the core package to avoid
+        // the core's `break` swallowing it).
+        arduinoLibsDir = path.join(packagesDir, d);
+      } else if (d.startsWith('framework-arduinoespressif32') && !arduinoCoresDir) {
         const coresCandidate = path.join(packagesDir, d, 'cores', 'esp32');
         try {
           await fs.access(path.join(coresCandidate, 'Arduino.h'));
           arduinoCoresDir = path.join(packagesDir, d);
-          break;
         } catch {
           // no Arduino.h here
         }
@@ -296,7 +302,6 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
   if (variantDirs.size === 0) {
     try {
       const variants = await fs.readdir(variantsBase);
-      // Check if any entry's arguments contain a SOC target hint
       for (const entry of entries) {
         const args = entry.arguments || [];
         const argsStr = args.join(' ');
@@ -325,6 +330,21 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
   const injectFlags = [`-I${coresInclude}`];
   for (const v of variantDirs) {
     injectFlags.push(`-I${v}`);
+
+    // Also inject the corresponding per-chip include dir from the libs package
+    // (framework-arduinoespressif32-libs/<chip_variant>/include).
+    // This directory contains headers for the pre-compiled Arduino library
+    // archives (WiFi, BLE, etc.) that are not present in the main framework.
+    if (arduinoLibsDir) {
+      const chipVariant = path.basename(v); // e.g. "esp32s3", "esp32c3"
+      const libsInclude = path.join(arduinoLibsDir, chipVariant, 'include');
+      try {
+        await fs.access(libsInclude);
+        injectFlags.push(`-I${libsInclude}`);
+      } catch {
+        // no include dir for this chip variant in the libs package — skip
+      }
+    }
   }
 
   // Inject into project source entries that are missing the Arduino core path
