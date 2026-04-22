@@ -288,6 +288,10 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
   // (the correct variant is already used by Arduino library entries).
   const variantsBase = path.join(arduinoCoresDir, 'variants');
   const variantDirs = new Set();
+  const isInsideDir = (parent, child) => {
+    const rel = path.relative(path.normalize(parent), path.normalize(child));
+    return rel === '' || (!!rel && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+  };
   for (const entry of entries) {
     const args = entry.arguments || [];
     for (let i = 0; i < args.length; i++) {
@@ -295,14 +299,17 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
       if (
         a === '-I' &&
         typeof args[i + 1] === 'string' &&
-        args[i + 1].includes(variantsBase)
+        isInsideDir(variantsBase, args[i + 1])
       ) {
-        variantDirs.add(args[i + 1]);
+        variantDirs.add(path.normalize(args[i + 1]));
         i++;
         continue;
       }
-      if (typeof a === 'string' && a.startsWith('-I') && a.includes(variantsBase)) {
-        variantDirs.add(a.slice(2)); // always strip the "-I" prefix
+      if (typeof a === 'string' && a.startsWith('-I')) {
+        const includePath = a.slice(2);
+        if (isInsideDir(variantsBase, includePath)) {
+          variantDirs.add(path.normalize(includePath));
+        }
       }
     }
   }
@@ -363,11 +370,13 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
       continue;
     }
     // Only patch project source files, not framework/library files
-    if (!entry.file.startsWith(projectDir)) {
+    if (!isInsideDir(projectDir, entry.file)) {
       continue;
     }
-    const argsStr = entry.arguments.join('\0');
-    const missingFlags = injectFlags.filter((flag) => !argsStr.includes(flag.slice(2)));
+    const normalizedArgs = entry.arguments.map((arg) => path.normalize(arg)).join('\0');
+    const missingFlags = injectFlags.filter(
+      (flag) => !normalizedArgs.includes(path.normalize(flag.slice(2))),
+    );
     if (missingFlags.length === 0) {
       continue; // already has all Arduino includes
     }
@@ -798,9 +807,9 @@ section_key = sys.argv[1]
 config = ProjectConfig()
 try:
     framework = config.get(section_key, 'framework', default='') or ''
+    print(json.dumps({'framework': framework, 'resolverOk': True}))
 except Exception:
-    framework = ''
-print(json.dumps({'framework': framework}))
+    print(json.dumps({'framework': '', 'resolverOk': False}))
 `.trim();
 
     const output = await pioNodeHelpers.core.getCorePythonCommandOutput(
@@ -808,9 +817,14 @@ print(json.dumps({'framework': framework}))
       { projectDir },
     );
     const data = JSON.parse(output.trim());
-    if (/\bespidf\b/i.test(data.framework || '')) {
+    const framework = String(data.framework || '');
+    if (/\bespidf\b/i.test(framework)) {
       _idfCacheSet(cacheKey, true);
       return true;
+    }
+    if (data.resolverOk) {
+      _idfCacheSet(cacheKey, false);
+      return false;
     }
     // Fallback: check build artifacts (reliable post-first-build, no subprocess)
     const fsResult = await isIdfProjectByFilesystem(projectDir, envDir);
