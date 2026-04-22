@@ -199,6 +199,7 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
   // compile_commands.json.  Do not trigger `pio run --target compiledb` for
   // these project types — the build system already owns that file.
   if (await isIdfProject(observer)) {
+    await fixupCompileCommands(projectDir, envDir);
     return;
   }
 

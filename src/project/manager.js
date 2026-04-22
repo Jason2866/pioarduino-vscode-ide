@@ -259,6 +259,7 @@ export default class ProjectManager {
       currentEnv !== observer.getSelectedEnv()
     ) {
       disposeSubscriptions(this.internalSubscriptions);
+      this._activeProjectIsIdf = await isIdfProject(observer);
       await this._pool.switch(projectDir);
       const activeObs = this._pool.getActiveObserver();
       const activeEnv = activeObs
@@ -267,7 +268,6 @@ export default class ProjectManager {
       const envDir = activeEnv
         ? path.join(projectDir, '.pio', 'build', activeEnv)
         : undefined;
-      this._activeProjectIsIdf = await isIdfProject(activeObs);
       await ensureCompileCommands(projectDir, activeObs, envDir);
       await ensureClangdArgs(projectDir);
       this._taskManager = new ProjectTaskManager(projectDir, observer);
