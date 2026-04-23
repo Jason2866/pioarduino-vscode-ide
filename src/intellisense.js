@@ -640,7 +640,7 @@ export async function fixupCompileCommands(
   await fs.writeFile(destPath, JSON.stringify(entries, null, 2) + '\n', 'utf-8');
 
   vscode.window.showInformationMessage(
-    `Processing ${entries.length} entries from compile_commands.json for clangd `,
+    `Processed ${entries.length} entries from compile_commands.json — clangd is ready. `,
   );
 }
 
