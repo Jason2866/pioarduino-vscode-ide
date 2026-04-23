@@ -610,12 +610,15 @@ export async function fixupCompileCommands(
     const allProjectFiles = await walkDir(projectDir);
     const syntheticEntries = [];
 
+    const templateFileNorm = path.normalize(templateFile);
     for (const file of allProjectFiles) {
       if (existingFiles.has(file)) {
         continue;
       }
       const fwdFile = toFwd(file);
-      const syntheticArgs = filteredArgs.map((a) => (a === templateFile ? fwdFile : a));
+      const syntheticArgs = filteredArgs.map((a) =>
+        typeof a === 'string' && path.normalize(a) === templateFileNorm ? fwdFile : a,
+      );
       syntheticEntries.push({
         directory: templateDir,
         arguments: syntheticArgs,
