@@ -515,7 +515,9 @@ export async function fixupCompileCommands(
     } else if (entry.file) {
       entry.file = toFwd(path.normalize(entry.file));
     }
-    existingFiles.add(path.normalize(entry.file));
+    if (entry.file) {
+      existingFiles.add(path.normalize(entry.file));
+    }
 
     if (!entry.command && !entry.arguments) {
       continue;
