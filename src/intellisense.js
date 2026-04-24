@@ -451,6 +451,37 @@ async function querySystemIncludes(compilerPath) {
   return dirs;
 }
 
+/**
+ * Expand GCC/Clang @file (response file) arguments inline.
+ *
+ * The compiler reads additional flags from the referenced file when it sees
+ * an argument starting with `@`.  clangd supports this too, but expanding
+ * them here ensures the fixup logic (absolutizeIncludes, system-include
+ * injection, etc.) can see every flag.
+ */
+async function expandResponseFiles(args, dir) {
+  const result = [];
+  for (const a of args) {
+    if (typeof a === 'string' && a.startsWith('@') && a.length > 1) {
+      const filePath = a.slice(1);
+      const absPath = path.isAbsolute(filePath) ? filePath : path.join(dir, filePath);
+      try {
+        const content = await fs.readFile(absPath, 'utf-8');
+        // Response files contain whitespace-separated tokens (one per line or
+        // space-separated).  Split on any whitespace and drop empty tokens.
+        const tokens = content.split(/\s+/).filter((t) => t.length > 0);
+        result.push(...tokens);
+      } catch {
+        // File unreadable – keep the original @file argument
+        result.push(a);
+      }
+    } else {
+      result.push(a);
+    }
+  }
+  return result;
+}
+
 export async function fixupCompileCommands(
   projectDir,
   envDir,
@@ -574,7 +605,10 @@ export async function fixupCompileCommands(
       continue;
     }
 
-    const args = entry.arguments || shellTokenize(entry.command);
+    let args = entry.arguments || shellTokenize(entry.command);
+
+    // 0. Expand @file response-file arguments inline
+    args = await expandResponseFiles(args, dir);
 
     // 1. Resolve bare compiler name
     const compiler = args[0];
