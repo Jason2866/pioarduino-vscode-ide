@@ -1215,12 +1215,10 @@ export async function ensureClangdArgs(projectDir) {
   // --query-driver: let clangd query PlatformIO cross-compilers for built-in
   // include paths (C++ stdlib, GCC internals, sysroot). Without this, clangd
   // can't resolve system headers for embedded targets like xtensa, arm, riscv.
-  const pioDir = pioNodeHelpers.core.getCoreDir();
-  const sep = IS_WINDOWS ? '\\' : '/';
-  const glob = IS_WINDOWS ? '*\\bin\\*' : '*/bin/*';
+  const pioDir = toFwd(pioNodeHelpers.core.getCoreDir());
   const queryDriverGlob = [
-    `${pioDir}${sep}packages${sep}toolchain-${glob}`,
-    `${pioDir}${sep}packages${sep}tool-${glob}`,
+    `${pioDir}/packages/toolchain-*/bin/*`,
+    `${pioDir}/packages/tool-*/bin/*`,
   ].join(',');
   const queryDriverFlag = `--query-driver=${queryDriverGlob}`;
   changed = upsertArg(newArgs, '--query-driver=', queryDriverFlag) || changed;
