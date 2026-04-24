@@ -1025,7 +1025,8 @@ export async function ensureClangdConfig(projectDir, observer) {
   }
 
   const hasBuiltinHeaders = existing.includes('BuiltinHeaders');
-  const hasSuppressDiag = existing.includes('pp_expects_filename');
+  const hasSuppressDiag =
+    existing.includes('pp_expects_filename') && existing.includes('unused-includes');
   const hasRemoveFlags = ESP_CLANGD_REMOVE_FLAGS.every((f) => existing.includes(f));
   const hasAddFlags = ESP_CLANGD_ADD_FLAGS.every((f) => existing.includes(f));
   // Respect any existing Index.Background entry (user may have set Skip, etc.)
@@ -1058,7 +1059,7 @@ export async function ensureClangdConfig(projectDir, observer) {
   }
 
   if (!hasSuppressDiag) {
-    parts.push('Diagnostics:\n  Suppress: [pp_expects_filename]');
+    parts.push('Diagnostics:\n  Suppress: [pp_expects_filename, unused-includes]');
   }
 
   if (useEspFlags && !hasIndexBackground) {
