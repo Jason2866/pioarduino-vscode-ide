@@ -415,16 +415,21 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
 const _sysIncludeCache = new Map();
 
 async function querySystemIncludes(compilerPath) {
-  if (_sysIncludeCache.has(compilerPath)) {
-    return _sysIncludeCache.get(compilerPath);
+  // Detect language from compiler basename (g++/clang++ → c++, else c)
+  const base = path.basename(compilerPath);
+  const lang = base.endsWith('g++') || base.endsWith('clang++') ? 'c++' : 'c';
+  const cacheKey = `${compilerPath}::${lang}`;
+
+  if (_sysIncludeCache.has(cacheKey)) {
+    return _sysIncludeCache.get(cacheKey);
   }
   const dirs = [];
   try {
     const nullDev = IS_WINDOWS ? 'NUL' : '/dev/null';
     const { stderr } = await execFileAsync(
       compilerPath,
-      ['-E', '-x', 'c', '-v', nullDev],
-      { timeout: 10000 },
+      ['-E', '-x', lang, '-v', nullDev],
+      { timeout: 10000, env: { ...process.env, LC_ALL: 'C' } },
     );
     // Parse the include search path block from GCC/Clang verbose output
     const lines = stderr.split('\n');
@@ -447,7 +452,7 @@ async function querySystemIncludes(compilerPath) {
   } catch {
     // compiler not runnable or timed out
   }
-  _sysIncludeCache.set(compilerPath, dirs);
+  _sysIncludeCache.set(cacheKey, dirs);
   return dirs;
 }
 
