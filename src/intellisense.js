@@ -756,29 +756,38 @@ function _idfCacheSet(key, result) {
  * Invalidate all cache entries whose key starts with the given projectDir.
  */
 export function invalidateIdfCache(projectDir) {
+  const normalized = path.normalize(projectDir);
   for (const key of _idfCache.keys()) {
-    if (key.startsWith(`${projectDir}::`)) {
+    if (key.startsWith(`${normalized}::`)) {
       _idfCache.delete(key);
     }
   }
-  const watcher = _idfIniWatchers.get(projectDir);
+  const watcher = _idfIniWatchers.get(normalized);
   if (watcher) {
     watcher.dispose();
-    _idfIniWatchers.delete(projectDir);
+    _idfIniWatchers.delete(normalized);
   }
 }
 
+export function disposeAllIdfWatchers() {
+  for (const watcher of _idfIniWatchers.values()) {
+    watcher.dispose();
+  }
+  _idfIniWatchers.clear();
+}
+
 function _ensureIniWatcher(projectDir) {
-  if (_idfIniWatchers.has(projectDir)) {
+  const normalized = path.normalize(projectDir);
+  if (_idfIniWatchers.has(normalized)) {
     return;
   }
-  const pattern = new vscode.RelativePattern(projectDir, 'platformio.ini');
+  const pattern = new vscode.RelativePattern(normalized, 'platformio.ini');
   const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-  const handler = () => invalidateIdfCache(projectDir);
+  const handler = () => invalidateIdfCache(normalized);
   watcher.onDidChange(handler);
   watcher.onDidCreate(handler);
   watcher.onDidDelete(handler);
-  _idfIniWatchers.set(projectDir, watcher);
+  _idfIniWatchers.set(normalized, watcher);
 }
 
 // After a first build, CMakeCache.txt in envDir is IDF-specific (CMake build system).
