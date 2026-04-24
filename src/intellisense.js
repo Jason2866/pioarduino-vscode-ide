@@ -440,7 +440,7 @@ async function querySystemIncludes(compilerPath) {
         }
         const trimmed = line.trim();
         if (trimmed) {
-          dirs.push(trimmed);
+          dirs.push(path.normalize(trimmed));
         }
       }
     }
