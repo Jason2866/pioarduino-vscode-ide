@@ -212,7 +212,41 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
   // compile_commands.json.  Do not trigger `pio run --target compiledb` for
   // these project types — the build system already owns that file.
   if (await isIdfProject(observer, envDir)) {
-    await fixupCompileCommands(projectDir, envDir, { allowRootFallback: false });
+    const ccPath = envDir ? path.join(envDir, 'compile_commands.json') : null;
+
+    if (!ccPath) {
+      return; // envDir unknown — watcher in manager.js will handle it when build completes
+    }
+
+    let origStat = null;
+    try {
+      origStat = await fs.stat(ccPath);
+    } catch {
+      // File does not exist yet — user must build first.
+      vscode.window.showInformationMessage(
+        'Build your ESP-IDF project first to generate compile_commands.json for clangd IntelliSense. ' +
+          'IntelliSense will activate automatically after the build completes.',
+      );
+      return;
+    }
+
+    // Re-process only when the CMake output is newer than the clangd copy.
+    const clangdPath = path.join(
+      projectDir,
+      '.cache',
+      'clangd',
+      'compile_commands.json',
+    );
+    let clangdStat = null;
+    try {
+      clangdStat = await fs.stat(clangdPath);
+    } catch {
+      // clangd copy missing — process now
+    }
+
+    if (!clangdStat || origStat.mtimeMs > clangdStat.mtimeMs) {
+      await fixupCompileCommands(projectDir, envDir, { allowRootFallback: false });
+    }
     return;
   }
 
@@ -957,6 +991,50 @@ export function disposeAllIdfWatchers() {
     watcher.dispose();
   }
   _idfIniWatchers.clear();
+  disposeAllIdfCcWatchers();
+}
+
+// ── Watchers for CMake-generated compile_commands.json (IDF projects) ──
+const _idfCcWatchers = new Map(); // normalized projectDir → Disposable
+
+export function disposeIdfCcWatcher(projectDir) {
+  const key = path.normalize(projectDir);
+  const watcher = _idfCcWatchers.get(key);
+  if (watcher) {
+    watcher.dispose();
+    _idfCcWatchers.delete(key);
+  }
+}
+
+function disposeAllIdfCcWatchers() {
+  for (const w of _idfCcWatchers.values()) {
+    w.dispose();
+  }
+  _idfCcWatchers.clear();
+}
+
+/**
+ * Watch the CMake-generated compile_commands.json in envDir.
+ * Calls onReady() whenever the file is created or changed (e.g. after a build).
+ */
+export function watchIdfCompileCommands(projectDir, envDir, onReady) {
+  disposeIdfCcWatcher(projectDir);
+  if (!envDir) {
+    return;
+  }
+  const pattern = new vscode.RelativePattern(envDir, 'compile_commands.json');
+  const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+  const handler = async () => {
+    try {
+      await fs.access(path.join(envDir, 'compile_commands.json'));
+      await onReady();
+    } catch {
+      // file not yet accessible — will fire again when ready
+    }
+  };
+  watcher.onDidCreate(handler);
+  watcher.onDidChange(handler);
+  _idfCcWatchers.set(path.normalize(projectDir), watcher);
 }
 
 function _ensureIniWatcher(projectDir) {

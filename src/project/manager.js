@@ -8,8 +8,8 @@
 
 import * as pioNodeHelpers from 'pioarduino-node-helpers';
 import * as projectHelpers from './helpers';
-import { disposeSubscriptions, notifyError } from '../utils';
 import {
+  disposeIdfCcWatcher,
   ensureClangdArgs,
   ensureClangdConfig,
   ensureCompileCommands,
@@ -19,7 +19,9 @@ import {
   invalidateIdfCache,
   isIdfProject,
   notifyRescanBackend,
+  watchIdfCompileCommands,
 } from '../intellisense';
+import { disposeSubscriptions, notifyError } from '../utils';
 import { ProjectConfigLanguageProvider } from './config';
 import ProjectTaskManager from './tasks';
 import ProjectTestManager from './tests';
@@ -267,12 +269,28 @@ export default class ProjectManager {
       disposeSubscriptions(this.internalSubscriptions);
       if (currentProjectDir && currentProjectDir !== projectDir) {
         invalidateIdfCache(currentProjectDir);
+        disposeIdfCcWatcher(currentProjectDir);
       }
       const selectedEnv = await observer.revealActiveEnvironment();
       const selectedEnvDir = selectedEnv
         ? path.join(projectDir, '.pio', 'build', selectedEnv)
         : undefined;
       this._activeProjectIsIdf = await isIdfProject(observer, selectedEnvDir);
+
+      // For IDF projects, watch the CMake-generated compile_commands.json so
+      // fixupCompileCommands is triggered automatically when the build completes.
+      if (this._activeProjectIsIdf && selectedEnvDir) {
+        watchIdfCompileCommands(projectDir, selectedEnvDir, async () => {
+          await fixupCompileCommands(projectDir, selectedEnvDir, {
+            allowRootFallback: false,
+          });
+          await ensureClangdArgs(projectDir);
+          await notifyRescanBackend();
+        });
+      } else {
+        disposeIdfCcWatcher(projectDir);
+      }
+
       await this._pool.switch(projectDir);
       const activeObs = this._pool.getActiveObserver();
       const activeEnv = activeObs
