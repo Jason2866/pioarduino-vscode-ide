@@ -467,9 +467,9 @@ async function expandResponseFiles(args, dir) {
       const absPath = path.isAbsolute(filePath) ? filePath : path.join(dir, filePath);
       try {
         const content = await fs.readFile(absPath, 'utf-8');
-        // Response files contain whitespace-separated tokens (one per line or
-        // space-separated).  Split on any whitespace and drop empty tokens.
-        const tokens = content.split(/\s+/).filter((t) => t.length > 0);
+        // Response files may contain quoted or escaped paths – use the shell
+        // tokenizer so those are handled correctly.
+        const tokens = shellTokenize(content);
         result.push(...tokens);
       } catch {
         // File unreadable – keep the original @file argument
