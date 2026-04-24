@@ -12,11 +12,15 @@ import {
   IS_WINDOWS,
   getConflictedExtensionIds,
 } from './constants';
+import { execFile } from 'child_process';
 import { extension } from './main';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { promisify } from 'util';
 import shellTokenizeImpl from './shellTokenize';
 import vscode from 'vscode';
+
+const execFileAsync = promisify(execFile);
 
 function shellTokenize(cmd) {
   return shellTokenizeImpl(cmd, IS_WINDOWS);
@@ -401,6 +405,52 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
   }
 }
 
+/**
+ * Query a GCC/Clang compiler for its built-in system include directories.
+ *
+ * Runs `<compiler> -E -x c -v /dev/null` (or NUL on Windows) and parses the
+ * `#include <...> search starts here:` block from stderr.  Results are cached
+ * per compiler path.
+ */
+const _sysIncludeCache = new Map();
+
+async function querySystemIncludes(compilerPath) {
+  if (_sysIncludeCache.has(compilerPath)) {
+    return _sysIncludeCache.get(compilerPath);
+  }
+  const dirs = [];
+  try {
+    const nullDev = IS_WINDOWS ? 'NUL' : '/dev/null';
+    const { stderr } = await execFileAsync(
+      compilerPath,
+      ['-E', '-x', 'c', '-v', nullDev],
+      { timeout: 10000 },
+    );
+    // Parse the include search path block from GCC/Clang verbose output
+    const lines = stderr.split('\n');
+    let inBlock = false;
+    for (const line of lines) {
+      if (line.includes('#include <...> search starts here:')) {
+        inBlock = true;
+        continue;
+      }
+      if (inBlock) {
+        if (line.includes('End of search list.')) {
+          break;
+        }
+        const trimmed = line.trim();
+        if (trimmed) {
+          dirs.push(trimmed);
+        }
+      }
+    }
+  } catch {
+    // compiler not runnable or timed out
+  }
+  _sysIncludeCache.set(compilerPath, dirs);
+  return dirs;
+}
+
 export async function fixupCompileCommands(
   projectDir,
   envDir,
@@ -540,19 +590,50 @@ export async function fixupCompileCommands(
     // 2. Convert relative include paths to absolute
     await absolutizeIncludes(args, dir);
 
+    // 3. Inject GCC/Clang built-in system include paths so clangd can resolve
+    //    standard library headers like <math.h>, <stdio.h>, <stdint.h>, etc.
+    const resolvedCompiler = args[0];
+    if (resolvedCompiler && path.isAbsolute(resolvedCompiler)) {
+      const sysDirs = await querySystemIncludes(resolvedCompiler);
+      if (sysDirs.length > 0) {
+        // Collect existing -isystem paths to avoid duplicates
+        const existingSys = new Set();
+        for (let j = 0; j < args.length; j++) {
+          if (args[j] === '-isystem' && j + 1 < args.length) {
+            existingSys.add(path.normalize(args[j + 1]));
+            j++;
+          } else if (typeof args[j] === 'string' && args[j].startsWith('-isystem')) {
+            existingSys.add(path.normalize(args[j].slice('-isystem'.length)));
+          }
+        }
+        const newFlags = [];
+        for (const d of sysDirs) {
+          if (!existingSys.has(path.normalize(d))) {
+            newFlags.push('-isystem', toFwd(d));
+          }
+        }
+        if (newFlags.length > 0) {
+          // Insert before the source file argument (last -c <file>)
+          const cIdx = args.lastIndexOf('-c');
+          const insertAt = cIdx !== -1 ? cIdx : args.length;
+          args.splice(insertAt, 0, ...newFlags);
+        }
+      }
+    }
+
     // Write back as arguments array (preferred by clangd, avoids quoting issues)
     entry.arguments = args;
     delete entry.command;
   }
 
-  // 3. For Arduino-as-component projects (framework = arduino, espidf), the
+  // 4. For Arduino-as-component projects (framework = arduino, espidf), the
   //    CMake-generated compile_commands.json for project src/ files does not
   //    include the Arduino core headers (cores/esp32, variants/<variant>).
   //    Scan all entries for Arduino core include paths and inject them into
   //    project entries that are missing them.
   await injectArduinoCoreIncludes(entries, projectDir, packagesDir);
 
-  // 4. Add synthetic entries for project header/source files that aren't in
+  // 5. Add synthetic entries for project header/source files that aren't in
   //    the compilation database. clangd uses directory proximity to match
   //    headers to compile commands; files in directories like usermods/ that
   //    have no .cpp entry nearby get no flags and lose all IntelliSense.
