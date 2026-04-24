@@ -269,7 +269,7 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
 async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
   // Find both Arduino packages:
   //   framework-arduinoespressif32       → cores/esp32, variants/<chip>
-  //   framework-arduinoespressif32-libs  → <chip_variant>/include  (pre-compiled libs headers)
+  //   framework-arduinoespressif32-libs  → <chip>/<flash_variant>/include  (pre-compiled libs headers)
   let arduinoCoresDir = null;
   let arduinoLibsDir = null;
   try {
@@ -365,20 +365,82 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
     }
   }
 
+  // Collect pre-compiled libs include paths (e.g. <chip>/<flash_variant>/include)
+  // from existing compile entries.  Framework entries produced by the CMake build
+  // carry the correct variant-specific path for sdkconfig.h and friends.
+  const libsIncludeDirs = new Set();
+  if (arduinoLibsDir) {
+    for (const entry of entries) {
+      const args = entry.arguments || [];
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (
+          a === '-I' &&
+          typeof args[i + 1] === 'string' &&
+          isInsideDir(arduinoLibsDir, args[i + 1])
+        ) {
+          libsIncludeDirs.add(path.normalize(args[i + 1]));
+          i++;
+          continue;
+        }
+        if (typeof a === 'string' && a.startsWith('-I')) {
+          const includePath = a.slice(2);
+          if (isInsideDir(arduinoLibsDir, includePath)) {
+            libsIncludeDirs.add(path.normalize(includePath));
+          }
+        }
+      }
+    }
+
+    // Filesystem fallback: when no libs paths were found in compile entries,
+    // look for <chip>/<variant>/include directories that contain sdkconfig.h.
+    if (libsIncludeDirs.size === 0) {
+      for (const v of variantDirs) {
+        const chipVariant = path.basename(v);
+        const chipDir = path.join(arduinoLibsDir, chipVariant);
+        // Try the flat layout first: <chip>/include/sdkconfig.h
+        const flatInclude = path.join(chipDir, 'include');
+        try {
+          await fs.access(path.join(flatInclude, 'sdkconfig.h'));
+          libsIncludeDirs.add(path.normalize(flatInclude));
+          continue;
+        } catch {
+          // flat layout not present — scan subdirectories
+        }
+        // Scan <chip>/<sub>/include for sdkconfig.h
+        try {
+          const subdirs = await fs.readdir(chipDir, { withFileTypes: true });
+          const candidates = [];
+          for (const d of subdirs) {
+            if (!d.isDirectory()) {
+              continue;
+            }
+            const candidate = path.join(chipDir, d.name, 'include');
+            try {
+              await fs.access(path.join(candidate, 'sdkconfig.h'));
+              candidates.push(candidate);
+            } catch {
+              // no sdkconfig.h here
+            }
+          }
+          // Only inject when exactly one variant matches to avoid wrong defines
+          if (candidates.length === 1) {
+            libsIncludeDirs.add(path.normalize(candidates[0]));
+          }
+        } catch {
+          // chipDir unreadable
+        }
+      }
+    }
+  }
+
   // Build the list of -I flags to inject
   const injectFlags = [`-I${toFwd(coresInclude)}`];
   for (const v of variantDirs) {
     injectFlags.push(`-I${toFwd(v)}`);
-    if (arduinoLibsDir) {
-      const chipVariant = path.basename(v);
-      const libsInclude = path.join(arduinoLibsDir, chipVariant, 'include');
-      try {
-        await fs.access(libsInclude);
-        injectFlags.push(`-I${toFwd(libsInclude)}`);
-      } catch {
-        /* skip */
-      }
-    }
+  }
+  for (const libDir of libsIncludeDirs) {
+    injectFlags.push(`-I${toFwd(libDir)}`);
   }
 
   // Inject into project source entries that are missing the Arduino core path
