@@ -340,9 +340,7 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
         const args = entry.arguments || [];
         for (const v of variants) {
           const define = `-DCONFIG_IDF_TARGET_${v.toUpperCase()}`;
-          const match = args.some(
-            (a) => a === define || a.startsWith(`${define}=`),
-          );
+          const match = args.some((a) => a === define || a.startsWith(`${define}=`));
           if (match) {
             const variantPath = path.join(variantsBase, v);
             try {
