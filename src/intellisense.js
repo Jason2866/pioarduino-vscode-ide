@@ -1380,8 +1380,24 @@ export async function ensureClangdConfig(projectDir, observer) {
   // .ino files are not in compile_commands.json (PIO converts them to .cpp at
   // build time).  Without an explicit language hint clangd cannot give them
   // IntelliSense.  Detect any user-supplied PathMatch for .ino so we don't
-  // override it.
-  const hasInoPathMatch = /PathMatch:\s*[^\n]*\\\.ino/.test(existing);
+  // override it.  .clangd is a multi-document YAML file (separated by `---`),
+  // so check each document independently and accept both the inline form
+  //   PathMatch: .*\.ino
+  // and the list form
+  //   PathMatch:
+  //     - .*\.ino
+  const hasInoPathMatch = existing.split(/^---\s*$/m).some((doc) => {
+    if (!/^\s*If\s*:/m.test(doc)) {
+      return false;
+    }
+    // Inline value:   PathMatch: <anything containing \.ino>
+    if (/PathMatch\s*:\s*[^\n]*\\\.ino/.test(doc)) {
+      return true;
+    }
+    // List form:  PathMatch:\n    - <item containing \.ino>\n ...
+    const listMatch = doc.match(/PathMatch\s*:\s*\n((?:\s*-\s*[^\n]*\n?)+)/);
+    return !!(listMatch && /\\\.ino/.test(listMatch[1]));
+  });
 
   const needsEsp =
     useEspFlags && (!hasRemoveFlags || !hasAddFlags || !hasIndexBackground);
