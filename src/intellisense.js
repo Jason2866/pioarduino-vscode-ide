@@ -820,7 +820,11 @@ export async function fixupCompileCommands(
           if (args[j] === '-isystem' && j + 1 < args.length) {
             existingSys.add(path.normalize(args[j + 1]));
             j++;
-          } else if (typeof args[j] === 'string' && args[j].startsWith('-isystem')) {
+          } else if (
+            typeof args[j] === 'string' &&
+            args[j].startsWith('-isystem') &&
+            args[j].length > '-isystem'.length
+          ) {
             existingSys.add(path.normalize(args[j].slice('-isystem'.length)));
           }
         }
@@ -1181,8 +1185,11 @@ export function watchIdfCompileCommands(projectDir, envDir, onReady) {
     try {
       await fs.access(path.join(envDir, 'compile_commands.json'));
       await onReady();
-    } catch {
-      // file not yet accessible — will fire again when ready
+    } catch (err) {
+      // file not yet accessible (will fire again when ready), or onReady threw
+      if (err && err.code !== 'ENOENT') {
+        console.warn(`IDF compile_commands.json watcher: ${err.message || err}`);
+      }
     }
   };
   watcher.onDidCreate(handler);

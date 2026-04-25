@@ -284,11 +284,15 @@ export default class ProjectManager {
       // fixupCompileCommands is triggered automatically when the build completes.
       if (this._activeProjectIsIdf && selectedEnvDir) {
         watchIdfCompileCommands(projectDir, selectedEnvDir, async () => {
-          await fixupCompileCommands(projectDir, selectedEnvDir, {
-            allowRootFallback: false,
-          });
-          await ensureClangdArgs(projectDir);
-          await notifyRescanBackend();
+          try {
+            await fixupCompileCommands(projectDir, selectedEnvDir, {
+              allowRootFallback: false,
+            });
+            await ensureClangdArgs(projectDir);
+            await notifyRescanBackend();
+          } catch (err) {
+            notifyError('IDF compile_commands.json processing failed', err);
+          }
         });
       } else {
         disposeIdfCcWatcher(projectDir);
