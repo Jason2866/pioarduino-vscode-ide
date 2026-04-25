@@ -1145,34 +1145,70 @@ function disposeAllClangdCcWatchers() {
 
 /**
  * Watch the processed clangd compile_commands.json in `<projectDir>/.cache/clangd/`.
- * If the file is deleted, call onMissing() to regenerate it.
+ * Calls onMissing() when the file OR any of its ancestor cache directories is deleted.
+ *
+ * Three watchers are needed because VS Code's FileSystemWatcher only fires onDidDelete
+ * for the exact path that was removed — deleting a parent directory does NOT propagate
+ * a delete event to child paths.
  */
 export function watchClangdCompileCommands(projectDir, onMissing) {
   disposeClangdCcWatcher(projectDir);
   if (!projectDir) {
     return;
   }
-  // Anchor to projectDir (which always exists) so the watcher works even when
-  // .cache/clangd/ does not yet exist at setup time, and also catches the case
-  // where the entire .cache/clangd/ directory is deleted by the user.
-  const pattern = new vscode.RelativePattern(
-    vscode.Uri.file(projectDir),
-    '.cache/clangd/compile_commands.json',
-  );
-  const watcher = vscode.workspace.createFileSystemWatcher(
-    pattern,
+
+  const handleMissing = async () => {
+    try {
+      await onMissing();
+    } catch (err) {
+      console.warn(
+        `Failed to regenerate clangd compile_commands.json: ${err?.message ?? err}`,
+      );
+    }
+  };
+
+  const baseUri = vscode.Uri.file(projectDir);
+  const disposables = [];
+
+  // 1. Direct file deletion: .cache/clangd/compile_commands.json
+  const fileWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(baseUri, '.cache/clangd/compile_commands.json'),
     true, // ignoreCreateEvents
     true, // ignoreChangeEvents
     false, // listen for delete
   );
-  watcher.onDidDelete(async () => {
-    try {
-      await onMissing();
-    } catch (err) {
-      console.warn(`Failed to regenerate clangd compile_commands.json: ${err.message}`);
-    }
+  fileWatcher.onDidDelete(handleMissing);
+  disposables.push(fileWatcher);
+
+  // 2. Containing directory deletion: .cache/clangd/
+  //    VS Code fires onDidDelete when a directory matching the pattern is removed.
+  const clangdDirWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(baseUri, '.cache/clangd'),
+    true,
+    true,
+    false,
+  );
+  clangdDirWatcher.onDidDelete(handleMissing);
+  disposables.push(clangdDirWatcher);
+
+  // 3. Parent directory deletion: .cache/
+  const cacheDirWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(baseUri, '.cache'),
+    true,
+    true,
+    false,
+  );
+  cacheDirWatcher.onDidDelete(handleMissing);
+  disposables.push(cacheDirWatcher);
+
+  // Store a composite disposable so disposeClangdCcWatcher cleans all three.
+  _clangdCcWatchers.set(path.normalize(projectDir), {
+    dispose() {
+      for (const d of disposables) {
+        d.dispose();
+      }
+    },
   });
-  _clangdCcWatchers.set(path.normalize(projectDir), watcher);
 }
 
 /**
