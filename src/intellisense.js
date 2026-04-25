@@ -941,7 +941,22 @@ export async function fixupCompileCommands(
   const clangdDir = path.join(projectDir, '.cache', 'clangd');
   await fs.mkdir(clangdDir, { recursive: true });
   const destPath = path.join(clangdDir, 'compile_commands.json');
-  await fs.writeFile(destPath, JSON.stringify(entries, null, 2) + '\n', 'utf-8');
+  const newContent = JSON.stringify(entries, null, 2) + '\n';
+
+  // Skip the write when the content is byte-identical to the existing file.
+  // Rewriting the file (even with the same bytes) bumps mtime and forces
+  // clangd to discard its preamble and reparse every open TU.
+  let unchanged = false;
+  try {
+    const existing = await fs.readFile(destPath, 'utf-8');
+    unchanged = existing === newContent;
+  } catch {
+    // file does not exist yet — write it
+  }
+
+  if (!unchanged) {
+    await fs.writeFile(destPath, newContent, 'utf-8');
+  }
 
   vscode.window.showInformationMessage(
     `Processed ${entries.length} entries from compile_commands.json — clangd is ready. `,
