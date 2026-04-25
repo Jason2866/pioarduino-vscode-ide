@@ -301,19 +301,17 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
  * the missing `-I` flags into every project entry that lacks them.
  */
 async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
-  // Find both Arduino packages:
-  //   framework-arduinoespressif32       → cores/esp32, variants/<chip>
-  //   framework-arduinoespressif32-libs  → <chip>/<flash_variant>/include  (pre-compiled libs headers)
+  // Find the Arduino core package (libs/sdkconfig.h injection is handled
+  // separately by injectLibsSdkconfigInclude).
   let arduinoCoresDir = null;
-  let arduinoLibsDir = null;
   try {
     const dirs = await fs.readdir(packagesDir);
     for (const d of dirs) {
-      if (d.startsWith('framework-arduinoespressif32-libs')) {
-        // Capture the libs package (check before the core package to avoid
-        // the core's `break` swallowing it).
-        arduinoLibsDir = path.join(packagesDir, d);
-      } else if (d.startsWith('framework-arduinoespressif32') && !arduinoCoresDir) {
+      if (
+        d.startsWith('framework-arduinoespressif32') &&
+        !d.includes('-libs') &&
+        !arduinoCoresDir
+      ) {
         const coresCandidate = path.join(packagesDir, d, 'cores', 'esp32');
         try {
           await fs.access(path.join(coresCandidate, 'Arduino.h'));
@@ -399,82 +397,11 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
     }
   }
 
-  // Collect pre-compiled libs include paths (e.g. <chip>/<flash_variant>/include)
-  // from existing compile entries.  Framework entries produced by the CMake build
-  // carry the correct variant-specific path for sdkconfig.h and friends.
-  const libsIncludeDirs = new Set();
-  if (arduinoLibsDir) {
-    for (const entry of entries) {
-      const args = entry.arguments || [];
-      for (let i = 0; i < args.length; i++) {
-        const a = args[i];
-        if (
-          a === '-I' &&
-          typeof args[i + 1] === 'string' &&
-          isInsideDir(arduinoLibsDir, args[i + 1])
-        ) {
-          libsIncludeDirs.add(path.normalize(args[i + 1]));
-          i++;
-          continue;
-        }
-        if (typeof a === 'string' && a.startsWith('-I')) {
-          const includePath = a.slice(2);
-          if (isInsideDir(arduinoLibsDir, includePath)) {
-            libsIncludeDirs.add(path.normalize(includePath));
-          }
-        }
-      }
-    }
-
-    // Filesystem fallback: when no libs paths were found in compile entries,
-    // look for <chip>/<variant>/include directories that contain sdkconfig.h.
-    if (libsIncludeDirs.size === 0) {
-      for (const v of variantDirs) {
-        const chipVariant = path.basename(v);
-        const chipDir = path.join(arduinoLibsDir, chipVariant);
-        // Try the flat layout first: <chip>/include/sdkconfig.h
-        const flatInclude = path.join(chipDir, 'include');
-        try {
-          await fs.access(path.join(flatInclude, 'sdkconfig.h'));
-          libsIncludeDirs.add(path.normalize(flatInclude));
-          continue;
-        } catch {
-          // flat layout not present — scan subdirectories
-        }
-        // Scan <chip>/<sub>/include for sdkconfig.h
-        try {
-          const subdirs = await fs.readdir(chipDir, { withFileTypes: true });
-          const candidates = [];
-          for (const d of subdirs) {
-            if (!d.isDirectory()) {
-              continue;
-            }
-            const candidate = path.join(chipDir, d.name, 'include');
-            try {
-              await fs.access(path.join(candidate, 'sdkconfig.h'));
-              candidates.push(candidate);
-            } catch {
-              // no sdkconfig.h here
-            }
-          }
-          // Only inject when exactly one variant matches to avoid wrong defines
-          if (candidates.length === 1) {
-            libsIncludeDirs.add(path.normalize(candidates[0]));
-          }
-        } catch {
-          // chipDir unreadable
-        }
-      }
-    }
-  }
-
-  // Build the list of -I flags to inject
+  // Build the list of -I flags to inject (libs/sdkconfig.h is handled
+  // separately by injectLibsSdkconfigInclude in fixupCompileCommands).
   const injectFlags = [`-I${toFwd(coresInclude)}`];
   for (const v of variantDirs) {
     injectFlags.push(`-I${toFwd(v)}`);
-  }
-  for (const libDir of libsIncludeDirs) {
-    injectFlags.push(`-I${toFwd(libDir)}`);
   }
 
   // Inject into project source entries that are missing the Arduino core path
@@ -581,6 +508,162 @@ async function expandResponseFiles(args, dir) {
     }
   }
   return result;
+}
+
+/**
+ * Inject the framework-arduinoespressif32-libs SDK include path into entries.
+ *
+ * PIO's compiledb target does not emit the pre-compiled libs SDK include path
+ * (`<libs>/<chip>/<memory_type>/include`) which contains `sdkconfig.h`.
+ * Without it clangd cannot resolve `#include "sdkconfig.h"`.
+ *
+ * The correct memory_type sub-directory (e.g. `qio_qspi`, `dio_qspi`) is
+ * determined by querying PIO for `build.arduino.memory_type` /
+ * `build.flash_mode`, falling back to `dio_qspi` (the pioarduino default).
+ */
+async function injectLibsSdkconfigInclude(entries, projectDir, packagesDir, envDir) {
+  // 1. Find the libs package
+  let libsDir = null;
+  try {
+    const dirs = await fs.readdir(packagesDir);
+    for (const d of dirs) {
+      if (d.startsWith('framework-arduinoespressif32-libs')) {
+        libsDir = path.join(packagesDir, d);
+        break;
+      }
+    }
+  } catch {
+    return;
+  }
+  if (!libsDir) {
+    return;
+  }
+
+  // 2. Detect chip from Arduino variant -I paths in existing entries
+  let chip = null;
+  for (const entry of entries) {
+    const args = entry.arguments || [];
+    for (const a of args) {
+      if (typeof a !== 'string') {
+        continue;
+      }
+      const m = a.match(/framework-arduinoespressif32[/\\]variants[/\\]([^/\\]+)/);
+      if (m) {
+        chip = m[1];
+        break;
+      }
+    }
+    if (chip) {
+      break;
+    }
+  }
+  if (!chip) {
+    return;
+  }
+
+  // 3. Determine memory_type sub-directory
+  const chipDir = path.join(libsDir, chip);
+  let candidates;
+  try {
+    const subdirs = await fs.readdir(chipDir, { withFileTypes: true });
+    candidates = [];
+    for (const d of subdirs) {
+      if (!d.isDirectory()) {
+        continue;
+      }
+      const candidate = path.join(chipDir, d.name, 'include');
+      try {
+        await fs.access(path.join(candidate, 'sdkconfig.h'));
+        candidates.push({ name: d.name, dir: candidate });
+      } catch {
+        // no sdkconfig.h here
+      }
+    }
+  } catch {
+    return;
+  }
+  if (candidates.length === 0) {
+    return;
+  }
+
+  let libsInclude = null;
+  if (candidates.length === 1) {
+    libsInclude = candidates[0].dir;
+  } else {
+    // Multiple candidates — query PIO for the board's memory_type
+    const envName = envDir ? path.basename(envDir) : null;
+    if (envName) {
+      try {
+        const script = `
+import json, sys
+from platformio.public import ProjectConfig
+env = sys.argv[1]
+config = ProjectConfig()
+section = "env:" + env
+board_id = config.get(section, "board", default="")
+memory_type = ""
+if board_id:
+    try:
+        from platformio.platform.factory import PlatformFactory
+        pkg = config.get(section, "platform", default="espressif32")
+        p = PlatformFactory.new(pkg)
+        board = p.board_config(board_id)
+        flash_mode = board.get("build.flash_mode", "dio")
+        memory_type = board.get("build.arduino.memory_type", flash_mode + "_qspi")
+    except Exception:
+        pass
+print(json.dumps({"memory_type": memory_type}))
+`.trim();
+        const output = await pioNodeHelpers.core.getCorePythonCommandOutput(
+          ['-c', script, envName],
+          { projectDir },
+        );
+        const data = JSON.parse(output.trim());
+        if (data.memory_type) {
+          const match = candidates.find((c) => c.name === data.memory_type);
+          if (match) {
+            libsInclude = match.dir;
+          }
+        }
+      } catch {
+        // PIO query failed — fall through to default
+      }
+    }
+    // Fallback: pioarduino defaults to flash_mode "dio" → "dio_qspi"
+    if (!libsInclude) {
+      const fallback = candidates.find((c) => c.name === 'dio_qspi');
+      if (fallback) {
+        libsInclude = fallback.dir;
+      }
+    }
+  }
+
+  if (!libsInclude) {
+    return;
+  }
+
+  // 4. Check if any entry already references this path — skip if so
+  const normalizedLibs = path.normalize(libsInclude);
+  for (const entry of entries) {
+    const args = entry.arguments || [];
+    const joined = args
+      .map((a) => (typeof a === 'string' ? path.normalize(a) : ''))
+      .join('\0');
+    if (joined.includes(normalizedLibs)) {
+      return; // at least one entry already has it
+    }
+  }
+
+  // 5. Inject into every entry that has arguments
+  const libsFlag = `-I${toFwd(libsInclude)}`;
+  for (const entry of entries) {
+    if (!entry.arguments) {
+      continue;
+    }
+    const cIdx = entry.arguments.lastIndexOf('-c');
+    const insertAt = cIdx !== -1 ? cIdx : entry.arguments.length;
+    entry.arguments.splice(insertAt, 0, libsFlag);
+  }
 }
 
 export async function fixupCompileCommands(
@@ -767,6 +850,10 @@ export async function fixupCompileCommands(
   //    Scan all entries for Arduino core include paths and inject them into
   //    project entries that are missing them.
   await injectArduinoCoreIncludes(entries, projectDir, packagesDir);
+
+  // 4b. Inject framework-arduinoespressif32-libs SDK include path
+  //     (contains sdkconfig.h) which PIO's compiledb target omits.
+  await injectLibsSdkconfigInclude(entries, projectDir, packagesDir, envDir);
 
   // 5. Add synthetic entries for project header/source files that aren't in
   //    the compilation database. clangd uses directory proximity to match
