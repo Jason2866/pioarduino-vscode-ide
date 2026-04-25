@@ -1094,6 +1094,7 @@ export function disposeAllIdfWatchers() {
   }
   _idfIniWatchers.clear();
   disposeAllIdfCcWatchers();
+  disposeAllClangdCcWatchers();
 }
 
 // ── Watchers for CMake-generated compile_commands.json (IDF projects) ──
@@ -1113,6 +1114,56 @@ function disposeAllIdfCcWatchers() {
     w.dispose();
   }
   _idfCcWatchers.clear();
+}
+
+// ── Watchers for the processed clangd compile_commands.json (non-IDF) ──
+// If the user (or some external tool) deletes .cache/clangd/compile_commands.json
+// while the project is open, we re-run ensureCompileCommands so clangd gets a
+// fresh database (regenerated from the original PIO/CMake output, or rebuilt
+// from scratch if no source DB is left).
+const _clangdCcWatchers = new Map(); // normalized projectDir → Disposable
+
+export function disposeClangdCcWatcher(projectDir) {
+  const key = path.normalize(projectDir);
+  const watcher = _clangdCcWatchers.get(key);
+  if (watcher) {
+    watcher.dispose();
+    _clangdCcWatchers.delete(key);
+  }
+}
+
+function disposeAllClangdCcWatchers() {
+  for (const w of _clangdCcWatchers.values()) {
+    w.dispose();
+  }
+  _clangdCcWatchers.clear();
+}
+
+/**
+ * Watch the processed clangd compile_commands.json in `<projectDir>/.cache/clangd/`.
+ * If the file is deleted, call onMissing() to regenerate it.
+ */
+export function watchClangdCompileCommands(projectDir, onMissing) {
+  disposeClangdCcWatcher(projectDir);
+  if (!projectDir) {
+    return;
+  }
+  const clangdDir = path.join(projectDir, '.cache', 'clangd');
+  const pattern = new vscode.RelativePattern(clangdDir, 'compile_commands.json');
+  const watcher = vscode.workspace.createFileSystemWatcher(
+    pattern,
+    true, // ignoreCreateEvents
+    true, // ignoreChangeEvents
+    false, // listen for delete
+  );
+  watcher.onDidDelete(async () => {
+    try {
+      await onMissing();
+    } catch (err) {
+      console.warn(`Failed to regenerate clangd compile_commands.json: ${err.message}`);
+    }
+  });
+  _clangdCcWatchers.set(path.normalize(projectDir), watcher);
 }
 
 /**

@@ -9,6 +9,7 @@
 import * as pioNodeHelpers from 'pioarduino-node-helpers';
 import * as projectHelpers from './helpers';
 import {
+  disposeClangdCcWatcher,
   disposeIdfCcWatcher,
   ensureClangdArgs,
   ensureClangdConfig,
@@ -19,6 +20,7 @@ import {
   invalidateIdfCache,
   isIdfProject,
   notifyRescanBackend,
+  watchClangdCompileCommands,
   watchIdfCompileCommands,
 } from '../intellisense';
 import { disposeSubscriptions, notifyError } from '../utils';
@@ -270,6 +272,7 @@ export default class ProjectManager {
       if (currentProjectDir && currentProjectDir !== projectDir) {
         invalidateIdfCache(currentProjectDir);
         disposeIdfCcWatcher(currentProjectDir);
+        disposeClangdCcWatcher(currentProjectDir);
       }
       const selectedEnv = await observer.revealActiveEnvironment();
       const selectedEnvDir = selectedEnv
@@ -290,6 +293,18 @@ export default class ProjectManager {
       } else {
         disposeIdfCcWatcher(projectDir);
       }
+
+      // Watch the processed clangd compile_commands.json so that an external
+      // delete (e.g. user wiping .cache/clangd) triggers a rebuild rather than
+      // leaving clangd without a database.
+      watchClangdCompileCommands(projectDir, async () => {
+        const obs = this._pool.getObserver(projectDir);
+        const env = obs ? await obs.revealActiveEnvironment() : undefined;
+        const envDir = env ? path.join(projectDir, '.pio', 'build', env) : undefined;
+        await ensureCompileCommands(projectDir, obs, envDir);
+        await ensureClangdArgs(projectDir);
+        await notifyRescanBackend();
+      });
 
       await this._pool.switch(projectDir);
       const activeObs = this._pool.getActiveObserver();
