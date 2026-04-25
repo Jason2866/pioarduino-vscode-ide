@@ -1152,8 +1152,13 @@ export function watchClangdCompileCommands(projectDir, onMissing) {
   if (!projectDir) {
     return;
   }
-  const clangdDir = path.join(projectDir, '.cache', 'clangd');
-  const pattern = new vscode.RelativePattern(clangdDir, 'compile_commands.json');
+  // Anchor to projectDir (which always exists) so the watcher works even when
+  // .cache/clangd/ does not yet exist at setup time, and also catches the case
+  // where the entire .cache/clangd/ directory is deleted by the user.
+  const pattern = new vscode.RelativePattern(
+    vscode.Uri.file(projectDir),
+    '.cache/clangd/compile_commands.json',
+  );
   const watcher = vscode.workspace.createFileSystemWatcher(
     pattern,
     true, // ignoreCreateEvents
