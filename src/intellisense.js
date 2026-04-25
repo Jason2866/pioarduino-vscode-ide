@@ -1377,12 +1377,17 @@ export async function ensureClangdConfig(projectDir, observer) {
   const hasAddFlags = ESP_CLANGD_ADD_FLAGS.every((f) => existing.includes(f));
   // Respect any existing Index.Background entry (user may have set Skip, etc.)
   const hasIndexBackground = /^Index:\s*\n(?:.*\n)*?\s+Background:/m.test(existing);
+  // .ino files are not in compile_commands.json (PIO converts them to .cpp at
+  // build time).  Without an explicit language hint clangd cannot give them
+  // IntelliSense.  Detect any user-supplied PathMatch for .ino so we don't
+  // override it.
+  const hasInoPathMatch = /PathMatch:\s*[^\n]*\\\.ino/.test(existing);
 
   const needsEsp =
     useEspFlags && (!hasRemoveFlags || !hasAddFlags || !hasIndexBackground);
 
   // Already contains all required directives – nothing to do
-  if (hasBuiltinHeaders && hasSuppressDiag && !needsEsp) {
+  if (hasBuiltinHeaders && hasSuppressDiag && !needsEsp && hasInoPathMatch) {
     return;
   }
 
@@ -1412,7 +1417,29 @@ export async function ensureClangdConfig(projectDir, observer) {
     parts.push('Index:\n  Background: Build\n  StandardLibrary: true');
   }
 
-  const block = parts.join('\n') + '\n';
+  let block = parts.join('\n') + (parts.length ? '\n' : '');
+
+  // Treat .ino files as C++ and auto-include Arduino.h.  PIO preprocesses
+  // .ino → .cpp at build time, so .ino files never appear in
+  // compile_commands.json.  This conditional block lets clangd give them
+  // IntelliSense by inheriting include/define flags from neighbouring .cpp
+  // entries while supplying the language and the implicit Arduino.h include.
+  // It must live in its own YAML document (separated by `---`) because it
+  // uses an `If:` selector.
+  if (!hasInoPathMatch) {
+    const inoBlock =
+      [
+        'If:',
+        '  PathMatch: .*\\.ino',
+        'CompileFlags:',
+        '  Add:',
+        '    - "-x"',
+        '    - "c++"',
+        '    - "-include"',
+        '    - "Arduino.h"',
+      ].join('\n') + '\n';
+    block = block ? block + '---\n' + inoBlock : inoBlock;
+  }
 
   // Prepend the block (separated by ---) so we don't clobber user settings
   const content = existing ? block + '---\n' + existing : block;
