@@ -8,6 +8,10 @@
  * module that depends on vscode, we reproduce the exact function body here
  * with injectable `fs` and `path` dependencies so it can be exercised
  * without the VS Code runtime.
+ *
+ * Correct path resolution order (per project convention):
+ *   1. Primary:     <packagesDir>/framework-arduinoespressif32[...]/tools/esp32-arduino-libs
+ *   2. Alternative: <packagesDir>/framework-arduinoespressif32-libs[...]  (extra/standalone pkg)
  */
 
 'use strict';
@@ -26,22 +30,22 @@ function makeFindArduinoLibsPkgDir(fs, path) {
   return async function findArduinoLibsPkgDir(packagesDir) {
     try {
       const dirs = await fs.readdir(packagesDir);
-      // Primary: framework-arduinoespressif32-libs package
+      // Primary: framework-arduinoespressif32/tools/esp32-arduino-libs
+      for (const d of dirs) {
+        if (d.startsWith('framework-arduinoespressif32') && !d.includes('-libs')) {
+          const primaryPath = path.join(packagesDir, d, 'tools', 'esp32-arduino-libs');
+          try {
+            await fs.access(primaryPath);
+            return primaryPath;
+          } catch {
+            // Primary path doesn't exist, keep looking
+          }
+        }
+      }
+      // Alternative: framework-arduinoespressif32-libs standalone package
       for (const d of dirs) {
         if (d.startsWith('framework-arduinoespressif32-libs')) {
           return path.join(packagesDir, d);
-        }
-      }
-      // Alternative: framework-arduinoespressif32/tools/esp32-arduino-libs
-      for (const d of dirs) {
-        if (d.startsWith('framework-arduinoespressif32') && !d.includes('-libs')) {
-          const altPath = path.join(packagesDir, d, 'tools', 'esp32-arduino-libs');
-          try {
-            await fs.access(altPath);
-            return altPath;
-          } catch {
-            // Alternative path doesn't exist
-          }
         }
       }
     } catch {
@@ -120,13 +124,98 @@ const PACKAGES_DIR = '/home/.platformio/packages';
 
 async function main() {
 
-// --- primary path (framework-arduinoespressif32-libs) ---
+// --- primary path (framework-arduinoespressif32/tools/esp32-arduino-libs) ---
 
-await test('Primary: exact match returns correct path', async () => {
-  const dirs = ['framework-arduinoespressif32-libs'];
-  const fs = mockFs({ dirs });
+await test('Primary: exact match returns correct tools/esp32-arduino-libs path', async () => {
+  const dirs = ['framework-arduinoespressif32'];
+  const primaryPath = `${PACKAGES_DIR}/framework-arduinoespressif32/tools/esp32-arduino-libs`;
+  const fs = mockFs({ dirs, accessiblePaths: new Set([primaryPath]) });
   const find = makeFindArduinoLibsPkgDir(fs, mockPath);
   const result = await find(PACKAGES_DIR);
+  assertEqual('result', result, primaryPath);
+});
+
+await test('Primary: versioned framework dir is matched (startsWith)', async () => {
+  const dirs = ['framework-arduinoespressif32@3.1.0'];
+  const primaryPath = `${PACKAGES_DIR}/framework-arduinoespressif32@3.1.0/tools/esp32-arduino-libs`;
+  const fs = mockFs({ dirs, accessiblePaths: new Set([primaryPath]) });
+  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
+  const result = await find(PACKAGES_DIR);
+  assertEqual('result', result, primaryPath);
+});
+
+await test('Primary: takes precedence over alternative when both exist', async () => {
+  const dirs = [
+    'framework-arduinoespressif32@3.1.0',
+    'framework-arduinoespressif32-libs@1.0',
+  ];
+  const primaryPath = `${PACKAGES_DIR}/framework-arduinoespressif32@3.1.0/tools/esp32-arduino-libs`;
+  const fs = mockFs({ dirs, accessiblePaths: new Set([primaryPath]) });
+  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
+  const result = await find(PACKAGES_DIR);
+  // Must return the primary tools/ path, not the standalone -libs package
+  assertEqual('result', result, primaryPath);
+});
+
+await test('Primary: uses exact tools/esp32-arduino-libs subpath', async () => {
+  const dirs = ['framework-arduinoespressif32@3.0.0'];
+  const expectedPath = `${PACKAGES_DIR}/framework-arduinoespressif32@3.0.0/tools/esp32-arduino-libs`;
+  const accessedPaths = [];
+  const fs = {
+    readdir: async () => dirs,
+    access: async (p) => {
+      accessedPaths.push(p);
+      if (p !== expectedPath) {
+        throw new Error('ENOENT');
+      }
+    },
+  };
+  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
+  const result = await find(PACKAGES_DIR);
+  // Verify the exact path that was checked
+  assertEqual('accessedPath', accessedPaths[0], expectedPath);
+  assertEqual('result', result, expectedPath);
+});
+
+await test('Primary: multiple unrelated entries before the matching framework dir', async () => {
+  const dirs = [
+    'tool-cmake',
+    'tool-ninja',
+    'toolchain-xtensa-esp-elf',
+    'framework-arduinoespressif32@3.1.0',
+  ];
+  const primaryPath = `${PACKAGES_DIR}/framework-arduinoespressif32@3.1.0/tools/esp32-arduino-libs`;
+  const fs = mockFs({ dirs, accessiblePaths: new Set([primaryPath]) });
+  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
+  const result = await find(PACKAGES_DIR);
+  assertEqual('result', result, primaryPath);
+});
+
+await test('Primary: tools/esp32-arduino-libs not accessible → falls through to alternative', async () => {
+  const dirs = [
+    'framework-arduinoespressif32@3.1.0',
+    'framework-arduinoespressif32-libs@1.0',
+  ];
+  // No primary path accessible; only standalone -libs package present
+  const fs = mockFs({ dirs, accessiblePaths: new Set() });
+  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
+  const result = await find(PACKAGES_DIR);
+  // Falls back to the standalone -libs package
+  assertEqual('result', result, `${PACKAGES_DIR}/framework-arduinoespressif32-libs@1.0`);
+});
+
+await test('Primary: dir named "framework-arduinoespressif32-libs" is excluded from primary loop', async () => {
+  // The primary loop filters out dirs that include '-libs'.
+  // A dir like "framework-arduinoespressif32-libs" must not be used as a
+  // base for the tools/ path lookup — it belongs to the alternative loop.
+  const dirs = ['framework-arduinoespressif32-libs'];
+  const fs = {
+    readdir: async () => dirs,
+    access: async () => {}, // unconditionally succeeds
+  };
+  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
+  const result = await find(PACKAGES_DIR);
+  // Alternative loop must match, returning the standalone -libs path
   assertEqual(
     'result',
     result,
@@ -134,7 +223,18 @@ await test('Primary: exact match returns correct path', async () => {
   );
 });
 
-await test('Primary: versioned package name is matched (startsWith)', async () => {
+// --- alternative path (framework-arduinoespressif32-libs standalone package) ---
+
+await test('Alternative: standalone libs package used when primary tools/ path absent', async () => {
+  const dirs = ['framework-arduinoespressif32-libs', 'tool-scons'];
+  // No accessible tools/ path
+  const fs = mockFs({ dirs, accessiblePaths: new Set() });
+  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
+  const result = await find(PACKAGES_DIR);
+  assertEqual('result', result, `${PACKAGES_DIR}/framework-arduinoespressif32-libs`);
+});
+
+await test('Alternative: versioned standalone libs package is matched (startsWith)', async () => {
   const dirs = ['framework-arduinoespressif32-libs@src-abc123'];
   const fs = mockFs({ dirs });
   const find = makeFindArduinoLibsPkgDir(fs, mockPath);
@@ -146,84 +246,18 @@ await test('Primary: versioned package name is matched (startsWith)', async () =
   );
 });
 
-await test('Primary: takes precedence over alternative when both exist', async () => {
-  const dirs = [
-    'framework-arduinoespressif32-libs@1.0',
-    'framework-arduinoespressif32@3.1.0',
-  ];
-  const altPath = `${PACKAGES_DIR}/framework-arduinoespressif32@3.1.0/tools/esp32-arduino-libs`;
-  const fs = mockFs({ dirs, accessiblePaths: new Set([altPath]) });
-  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
-  const result = await find(PACKAGES_DIR);
-  // Must return the primary path, not the alternative
-  assertEqual(
-    'result',
-    result,
-    `${PACKAGES_DIR}/framework-arduinoespressif32-libs@1.0`,
-  );
-});
-
-// --- alternative path (new in PR 1.3.21) ---
-
-await test('Alternative: uses esp32-arduino-libs inside framework dir when primary absent', async () => {
-  const dirs = ['framework-arduinoespressif32@3.1.0', 'tool-scons'];
-  const altPath = `${PACKAGES_DIR}/framework-arduinoespressif32@3.1.0/tools/esp32-arduino-libs`;
-  const fs = mockFs({ dirs, accessiblePaths: new Set([altPath]) });
-  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
-  const result = await find(PACKAGES_DIR);
-  assertEqual('result', result, altPath);
-});
-
-await test('Alternative: versioned framework dir without version suffix also matched', async () => {
-  const dirs = ['framework-arduinoespressif32'];
-  const altPath = `${PACKAGES_DIR}/framework-arduinoespressif32/tools/esp32-arduino-libs`;
-  const fs = mockFs({ dirs, accessiblePaths: new Set([altPath]) });
-  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
-  const result = await find(PACKAGES_DIR);
-  assertEqual('result', result, altPath);
-});
-
-await test('Alternative: dir named "framework-arduinoespressif32-libs" is NOT used as alternative', async () => {
-  // The alternative loop filters out dirs that include '-libs'.
-  // A dir like "framework-arduinoespressif32-libs" should already be caught by
-  // the primary loop; the alternative loop must not treat it as a base dir.
-  const dirs = ['framework-arduinoespressif32-libs'];
-  // Access would succeed for any constructed altPath — but the alternative
-  // loop should never run for this entry.
-  const fs = {
-    readdir: async () => dirs,
-    access: async () => {}, // unconditionally succeeds
-  };
-  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
-  const result = await find(PACKAGES_DIR);
-  // Primary loop must have matched, returning the primary path
-  assertEqual(
-    'result',
-    result,
-    `${PACKAGES_DIR}/framework-arduinoespressif32-libs`,
-  );
-});
-
-await test('Alternative: altPath not accessible → continues to next dir', async () => {
-  // Two framework dirs; only the second has a valid esp32-arduino-libs subdir.
+await test('Alternative: primary tools/ inaccessible for any dir, then libs package matched', async () => {
+  // Two framework dirs; neither has an accessible tools/ subdir.
   const dirs = [
     'framework-arduinoespressif32@2.0.0',
     'framework-arduinoespressif32@3.1.0',
+    'framework-arduinoespressif32-libs@1.0',
   ];
-  const goodAltPath = `${PACKAGES_DIR}/framework-arduinoespressif32@3.1.0/tools/esp32-arduino-libs`;
-  const fs = mockFs({ dirs, accessiblePaths: new Set([goodAltPath]) });
-  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
-  const result = await find(PACKAGES_DIR);
-  assertEqual('result', result, goodAltPath);
-});
-
-await test('Alternative: altPath not accessible for any dir → returns null', async () => {
-  const dirs = ['framework-arduinoespressif32@3.1.0', 'tool-scons'];
-  // No accessible altPath
+  // No accessible primary paths
   const fs = mockFs({ dirs, accessiblePaths: new Set() });
   const find = makeFindArduinoLibsPkgDir(fs, mockPath);
   const result = await find(PACKAGES_DIR);
-  assertNull('result', result);
+  assertEqual('result', result, `${PACKAGES_DIR}/framework-arduinoespressif32-libs@1.0`);
 });
 
 // --- null / error cases ---
@@ -250,65 +284,31 @@ await test('Returns null for empty packagesDir', async () => {
   assertNull('result', result);
 });
 
+await test('Returns null when framework dir exists but tools/ path is inaccessible and no standalone libs pkg', async () => {
+  const dirs = ['framework-arduinoespressif32@3.1.0', 'tool-scons'];
+  // No accessible paths at all
+  const fs = mockFs({ dirs, accessiblePaths: new Set() });
+  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
+  const result = await find(PACKAGES_DIR);
+  assertNull('result', result);
+});
+
 // --- regression / boundary tests ---
 
-await test('Regression: dir "framework-arduinoespressif32-something" with -libs in name is excluded from alternative', async () => {
-  // e.g. a hypothetical dir "framework-arduinoespressif32-libs-extra" must not
-  // be used as a base for the alternative path lookup.
-  const dirs = ['framework-arduinoespressif32-libs-extra'];
-  const fs = {
-    readdir: async () => dirs,
-    access: async () => {}, // would succeed if reached
-  };
-  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
-  const result = await find(PACKAGES_DIR);
-  // Primary does NOT match (no dir starts with 'framework-arduinoespressif32-libs' exactly... wait, it does)
-  // "framework-arduinoespressif32-libs-extra".startsWith("framework-arduinoespressif32-libs") === true
-  // So primary loop WILL match it. That is the expected behavior per the function.
-  assertEqual(
-    'result',
-    result,
-    `${PACKAGES_DIR}/framework-arduinoespressif32-libs-extra`,
-  );
-});
-
-await test('Boundary: alternative uses exact tools/esp32-arduino-libs subpath', async () => {
-  const dirs = ['framework-arduinoespressif32@3.0.0'];
-  // Access succeeds ONLY for the exact expected path
-  const expectedAltPath = `${PACKAGES_DIR}/framework-arduinoespressif32@3.0.0/tools/esp32-arduino-libs`;
-  const accessedPaths = [];
-  const fs = {
-    readdir: async () => dirs,
-    access: async (p) => {
-      accessedPaths.push(p);
-      if (p !== expectedAltPath) {
-        throw new Error('ENOENT');
-      }
-    },
-  };
-  const find = makeFindArduinoLibsPkgDir(fs, mockPath);
-  const result = await find(PACKAGES_DIR);
-  // Verify the exact path that was checked
-  assertEqual('accessedPath', accessedPaths[0], expectedAltPath);
-  assertEqual('result', result, expectedAltPath);
-});
-
-await test('Boundary: multiple unrelated entries before the matching alternative', async () => {
+await test('Regression: multiple framework dirs, only second has accessible tools/ path', async () => {
   const dirs = [
-    'tool-cmake',
-    'tool-ninja',
-    'toolchain-xtensa-esp-elf',
+    'framework-arduinoespressif32@2.0.0',
     'framework-arduinoespressif32@3.1.0',
   ];
-  const altPath = `${PACKAGES_DIR}/framework-arduinoespressif32@3.1.0/tools/esp32-arduino-libs`;
-  const fs = mockFs({ dirs, accessiblePaths: new Set([altPath]) });
+  const goodPath = `${PACKAGES_DIR}/framework-arduinoespressif32@3.1.0/tools/esp32-arduino-libs`;
+  const fs = mockFs({ dirs, accessiblePaths: new Set([goodPath]) });
   const find = makeFindArduinoLibsPkgDir(fs, mockPath);
   const result = await find(PACKAGES_DIR);
-  assertEqual('result', result, altPath);
+  assertEqual('result', result, goodPath);
 });
 
 // ---------------------------------------------------------------------------
-// Summary
+
 // ---------------------------------------------------------------------------
 
   process.stdout.write(`\n${passed + failed} tests: ${passed} passed, ${failed} failed\n`);
