@@ -468,20 +468,47 @@ const _sysIncludeCache = new Map();
 /**
  * Detect if picolibc is being used by examining compiler arguments.
  * Returns picolibc-related flags if found, null otherwise.
+ *
+ * Detects:
+ *   - Joined form: -specs=picolibc.specs, --specs=picolibc.specs
+ *   - Space-separated: -specs picolibc.specs, --specs picolibc.specs
+ *   - Define: -D__PICOLIBC__
+ *   - Sysroot: --sysroot, -isysroot (if pointing to picolibc toolchain)
  */
 function detectPicolibcFlags(args) {
   const picolibcFlags = [];
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (typeof arg !== 'string') {
       continue;
     }
-    // Check for -specs=picolibc.specs or similar
-    if (arg.includes('picolibc') && arg.includes('-specs')) {
+    // Check for -D__PICOLIBC__ define
+    if (arg === '-D__PICOLIBC__' || arg.startsWith('-D__PICOLIBC__=')) {
       picolibcFlags.push(arg);
+      continue;
     }
-    // Check for picolibc include path directives
-    if (arg.includes('picolibc') && (arg.startsWith('-I') || arg.startsWith('-isystem'))) {
-      // Don't include the path flags - we want to query the compiler for its builtin paths
+    // Check for joined form: -specs=*picolibc*.specs or --specs=*picolibc*.specs
+    if ((arg.startsWith('-specs=') || arg.startsWith('--specs=')) && arg.includes('picolibc')) {
+      picolibcFlags.push(arg);
+      continue;
+    }
+    // Check for space-separated form: -specs picolibc.specs (next arg contains picolibc)
+    if ((arg === '-specs' || arg === '--specs') && i + 1 < args.length) {
+      const nextArg = args[i + 1];
+      if (typeof nextArg === 'string' && nextArg.includes('picolibc')) {
+        picolibcFlags.push(arg, nextArg);
+        i++; // skip the next arg since we consumed it
+        continue;
+      }
+    }
+    // Include sysroot flags if present (affects compiler's include path resolution)
+    if (arg.startsWith('--sysroot=') || arg === '--sysroot' || arg.startsWith('-isysroot')) {
+      picolibcFlags.push(arg);
+      // For space-separated -isysroot <path>, also include the path
+      if ((arg === '--sysroot' || arg === '-isysroot') && i + 1 < args.length) {
+        picolibcFlags.push(args[i + 1]);
+        i++;
+      }
     }
   }
   return picolibcFlags.length > 0 ? picolibcFlags : null;
@@ -491,7 +518,7 @@ async function querySystemIncludes(compilerPath, extraFlags = []) {
   // Detect language from compiler basename (g++/clang++ → c++, else c)
   const base = path.basename(compilerPath);
   const lang = base.endsWith('g++') || base.endsWith('clang++') ? 'c++' : 'c';
-  const cacheKey = `${compilerPath}::${lang}::${extraFlags.join(',')}`;
+  const cacheKey = `${compilerPath}::${lang}::${extraFlags.slice().sort().join(' ')}`;
 
   if (_sysIncludeCache.has(cacheKey)) {
     return _sysIncludeCache.get(cacheKey);
