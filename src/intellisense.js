@@ -458,14 +458,40 @@ async function injectArduinoCoreIncludes(entries, projectDir, packagesDir) {
  * Runs `<compiler> -E -x c -v /dev/null` (or NUL on Windows) and parses the
  * `#include <...> search starts here:` block from stderr.  Results are cached
  * per compiler path.
+ *
+ * When picolibc is detected (via -specs or -D__PICOLIBC__ flags), the function
+ * queries the compiler with those flags to get the picolibc include paths
+ * instead of the standard libc includes.
  */
 const _sysIncludeCache = new Map();
 
-async function querySystemIncludes(compilerPath) {
+/**
+ * Detect if picolibc is being used by examining compiler arguments.
+ * Returns picolibc-related flags if found, null otherwise.
+ */
+function detectPicolibcFlags(args) {
+  const picolibcFlags = [];
+  for (const arg of args) {
+    if (typeof arg !== 'string') {
+      continue;
+    }
+    // Check for -specs=picolibc.specs or similar
+    if (arg.includes('picolibc') && arg.includes('-specs')) {
+      picolibcFlags.push(arg);
+    }
+    // Check for picolibc include path directives
+    if (arg.includes('picolibc') && (arg.startsWith('-I') || arg.startsWith('-isystem'))) {
+      // Don't include the path flags - we want to query the compiler for its builtin paths
+    }
+  }
+  return picolibcFlags.length > 0 ? picolibcFlags : null;
+}
+
+async function querySystemIncludes(compilerPath, extraFlags = []) {
   // Detect language from compiler basename (g++/clang++ → c++, else c)
   const base = path.basename(compilerPath);
   const lang = base.endsWith('g++') || base.endsWith('clang++') ? 'c++' : 'c';
-  const cacheKey = `${compilerPath}::${lang}`;
+  const cacheKey = `${compilerPath}::${lang}::${extraFlags.join(',')}`;
 
   if (_sysIncludeCache.has(cacheKey)) {
     return _sysIncludeCache.get(cacheKey);
@@ -473,9 +499,10 @@ async function querySystemIncludes(compilerPath) {
   const dirs = [];
   try {
     const nullDev = IS_WINDOWS ? 'NUL' : '/dev/null';
+    const args = ['-E', '-x', lang, '-v', ...extraFlags, nullDev];
     const { stderr } = await execFileAsync(
       compilerPath,
-      ['-E', '-x', lang, '-v', nullDev],
+      args,
       { timeout: 10000, env: { ...process.env, LC_ALL: 'C' } },
     );
     // Parse the include search path block from GCC/Clang verbose output
@@ -889,9 +916,12 @@ export async function fixupCompileCommands(
 
     // 3. Inject GCC/Clang built-in system include paths so clangd can resolve
     //    standard library headers like <math.h>, <stdio.h>, <stdint.h>, etc.
+    //    When picolibc is detected, query the compiler with picolibc specs to
+    //    get the correct include paths from the toolchain instead of standard libc.
     const resolvedCompiler = args[0];
     if (resolvedCompiler && path.isAbsolute(resolvedCompiler)) {
-      const sysDirs = await querySystemIncludes(resolvedCompiler);
+      const picolibcFlags = detectPicolibcFlags(args);
+      const sysDirs = await querySystemIncludes(resolvedCompiler, picolibcFlags || []);
       if (sysDirs.length > 0) {
         // Collect existing -isystem paths to avoid duplicates
         const existingSys = new Set();
