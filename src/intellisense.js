@@ -1775,14 +1775,7 @@ export async function ensureClangdConfig(projectDir, observer) {
   if (useEspFlags && !hasRemoveFlags) {
     removeFlags.push(...ESP_CLANGD_REMOVE_FLAGS);
   }
-  // When picolibc is used, remove standard libc paths that conflict with it
-  // Use wildcard patterns to match both Xtensa and RISC-V toolchain paths
-  if (usesPicolibc && !existing.includes('xtensa-esp-elf/include')) {
-    removeFlags.push('-I*/xtensa-esp-elf/include');
-    removeFlags.push('-isystem*/xtensa-esp-elf/include');
-    removeFlags.push('-I*/riscv*-esp-elf/include');
-    removeFlags.push('-isystem*/riscv*-esp-elf/include');
-  }
+
   if (removeFlags.length > 0) {
     cfParts.push('  Remove:', ...removeFlags.map((f) => `    - "${f}"`));
   }
