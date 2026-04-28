@@ -26,6 +26,15 @@ function shellTokenize(cmd) {
   return shellTokenizeImpl(cmd, IS_WINDOWS);
 }
 
+const TOOLCHAIN_LIBC_FILTER_RE = [
+  /xtensa-esp-elf[/\\]include$/,
+  /riscv\d+-esp-elf[/\\]include$/,
+];
+
+function isToolchainLibcPath(p) {
+  return TOOLCHAIN_LIBC_FILTER_RE.some((re) => re.test(p));
+}
+
 /** Normalize a filesystem path to forward slashes for use in compiler arguments. */
 const toFwd = IS_WINDOWS ? (p) => p.split(path.sep).join('/') : (p) => p;
 
@@ -1055,16 +1064,14 @@ export async function fixupCompileCommands(
           const includePath = arg.slice(2);
           // Filter toolchain standard libc paths like xtensa-esp-elf/include or riscv*-esp-elf/include
           // But keep Arduino newlib paths from esp32-arduino-libs
-          if (/xtensa-esp-elf[/\\]include$/.test(includePath) ||
-              /riscv\d+-esp-elf[/\\]include$/.test(includePath)) {
+          if (isToolchainLibcPath(includePath)) {
             shouldFilter = true;
           }
         }
         // Check for -I <path> form
         if (arg === '-I' && i + 1 < args.length) {
           const includePath = args[i + 1];
-          if (/xtensa-esp-elf[/\\]include$/.test(includePath) ||
-              /riscv\d+-esp-elf[/\\]include$/.test(includePath)) {
+          if (isToolchainLibcPath(includePath)) {
             i++; // Skip both -I and the path
             shouldFilter = true;
           }
@@ -1072,16 +1079,14 @@ export async function fixupCompileCommands(
         // Also handle -isystem <path> and -isystem<path>
         if (!shouldFilter && arg === '-isystem' && i + 1 < args.length) {
           const p = args[i + 1];
-          if (/xtensa-esp-elf[/\\]include$/.test(p) ||
-              /riscv\d+-esp-elf[/\\]include$/.test(p)) {
+          if (isToolchainLibcPath(p)) {
             i++; // Skip both -isystem and the path
             shouldFilter = true;
           }
         }
         if (!shouldFilter && typeof arg === 'string' && arg.startsWith('-isystem') && arg.length > '-isystem'.length) {
           const p = arg.slice('-isystem'.length);
-          if (/xtensa-esp-elf[/\\]include$/.test(p) ||
-              /riscv\d+-esp-elf[/\\]include$/.test(p)) {
+          if (isToolchainLibcPath(p)) {
             shouldFilter = true;
           }
         }
@@ -1743,7 +1748,7 @@ export async function ensureClangdConfig(projectDir, observer) {
     addFlags.push('-nostdinc');
   } else if (!usesPicolibc && hasNostdinc) {
     // Remove -nostdinc from existing content when picolibc is no longer used
-    existing = existing.replace(/\n?\s*-\s*"-nostdinc"/g, '');
+    existing = existing.replace(/\n?\s*-\s*['"]?-nostdinc['"]?/g, '');
   }
   if (addFlags.length > 0) {
     cfParts.push('  Add:', ...addFlags.map((f) => `    - "${f}"`));
