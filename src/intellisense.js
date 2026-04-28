@@ -474,9 +474,12 @@ const _sysIncludeCache = new Map();
  *   - Space-separated: -specs picolibc.specs, --specs picolibc.specs
  *   - Define: -D__PICOLIBC__
  *   - Sysroot: --sysroot, -isysroot (if pointing to picolibc toolchain)
+ *   - Related specs: other -specs= flags (e.g., nosys.specs) that affect linking
  */
 function detectPicolibcFlags(args) {
   const picolibcFlags = [];
+  let hasPicolibc = false;
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (typeof arg !== 'string') {
@@ -485,6 +488,7 @@ function detectPicolibcFlags(args) {
     // Check for -D__PICOLIBC__ define
     if (arg === '-D__PICOLIBC__' || arg.startsWith('-D__PICOLIBC__=')) {
       picolibcFlags.push(arg);
+      hasPicolibc = true;
       continue;
     }
     // Check for joined form: -specs=*picolibc*.specs or --specs=*picolibc*.specs
@@ -493,6 +497,7 @@ function detectPicolibcFlags(args) {
       arg.includes('picolibc')
     ) {
       picolibcFlags.push(arg);
+      hasPicolibc = true;
       continue;
     }
     // Check for space-separated form: -specs picolibc.specs (next arg contains picolibc)
@@ -500,6 +505,7 @@ function detectPicolibcFlags(args) {
       const nextArg = args[i + 1];
       if (typeof nextArg === 'string' && nextArg.includes('picolibc')) {
         picolibcFlags.push(arg, nextArg);
+        hasPicolibc = true;
         i++; // skip the next arg since we consumed it
         continue;
       }
@@ -516,15 +522,71 @@ function detectPicolibcFlags(args) {
         picolibcFlags.push(args[i + 1]);
         i++;
       }
+      continue;
+    }
+    // Include other specs files that may affect library selection
+    if (arg.startsWith('-specs=') && !arg.includes('picolibc')) {
+      picolibcFlags.push(arg);
+      continue;
+    }
+    if (arg === '-specs' && i + 1 < args.length && !args[i + 1].includes('picolibc')) {
+      picolibcFlags.push(arg, args[i + 1]);
+      i++;
+      continue;
     }
   }
-  return picolibcFlags.length > 0 ? picolibcFlags : null;
+
+  if (!hasPicolibc) {
+    return null;
+  }
+
+  // Return picolibc flags (including related specs like nosys.specs)
+  return picolibcFlags;
+}
+
+/**
+ * Detect if the project uses picolibc by checking compile_commands.json
+ * for -specs=picolibc.specs flags. Also returns idedata if available.
+ */
+async function detectPicolibcInProject(projectDir) {
+  try {
+    // Check the processed clangd compile_commands.json
+    const clangdPath = path.join(projectDir, '.cache', 'clangd', 'compile_commands.json');
+    const content = await fs.readFile(clangdPath, 'utf-8');
+    const usesPicolibc = content.includes('-specs=picolibc.specs');
+
+    // Try to read idedata.json from any environment subdirectory
+    let idedata = null;
+    try {
+      const buildDir = path.join(projectDir, '.pio', 'build');
+      const entries = await fs.readdir(buildDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const idedataPath = path.join(buildDir, entry.name, 'idedata.json');
+          try {
+            idedata = JSON.parse(await fs.readFile(idedataPath, 'utf-8'));
+            break; // Found it
+          } catch {
+            // Continue to next directory
+          }
+        }
+      }
+    } catch {
+      // build dir doesn't exist or can't be read
+    }
+
+    return { usesPicolibc, idedata };
+  } catch {
+    // File doesn't exist or can't be read
+    return { usesPicolibc: false, idedata: null };
+  }
 }
 
 async function querySystemIncludes(compilerPath, extraFlags = []) {
   // Detect language from compiler basename (g++/clang++ → c++, else c)
   const base = path.basename(compilerPath);
   const lang = base.endsWith('g++') || base.endsWith('clang++') ? 'c++' : 'c';
+  console.log(`[PIO] Querying ${base} for ${lang} includes with flags: ${extraFlags.join(' ') || '(none)'}`);
   const cacheKey = `${compilerPath}::${lang}::${extraFlags.join(' ')}`;
 
   if (_sysIncludeCache.has(cacheKey)) {
@@ -556,11 +618,19 @@ async function querySystemIncludes(compilerPath, extraFlags = []) {
         }
       }
     }
-  } catch {
+  } catch (err) {
     // compiler not runnable or timed out
+    console.warn(`[PIO] querySystemIncludes failed for ${compilerPath}: ${err?.message ?? err}`);
   }
-  _sysIncludeCache.set(cacheKey, dirs);
-  return dirs;
+  // Filter out C++ specific paths when querying for C to avoid confusing clangd
+  const filteredDirs =
+    lang === 'c' ? dirs.filter((d) => !d.includes('/c++/')) : dirs;
+  if (filteredDirs.length !== dirs.length) {
+    console.log(`[PIO] Filtered ${dirs.length - filteredDirs.length} C++ paths from C query`);
+  }
+  console.log(`[PIO] Raw compiler returned ${filteredDirs.length} paths:`, filteredDirs);
+  _sysIncludeCache.set(cacheKey, filteredDirs);
+  return filteredDirs;
 }
 
 /**
@@ -947,14 +1017,39 @@ export async function fixupCompileCommands(
     // 2. Convert relative include paths to absolute
     await absolutizeIncludes(args, dir);
 
+    // 2b. When picolibc is used, filter out newlib-specific include paths
+    // that are incompatible with picolibc (e.g., newlib/platform_include)
+    const picolibcFlags = detectPicolibcFlags(args);
+    if (picolibcFlags) {
+      const filteredArgs = [];
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        // Check for -I<path> or -I <path> containing "newlib"
+        if (typeof arg === 'string' && arg.startsWith('-I') && arg.includes('newlib')) {
+          console.log(`[PIO] Filtering newlib path: ${arg}`);
+          continue; // Skip this arg
+        }
+        if (arg === '-I' && i + 1 < args.length && args[i + 1].includes('newlib')) {
+          console.log(`[PIO] Filtering newlib path: -I ${args[i + 1]}`);
+          i++; // Skip both -I and the path
+          continue;
+        }
+        filteredArgs.push(arg);
+      }
+      args.splice(0, args.length, ...filteredArgs);
+    }
+
     // 3. Inject GCC/Clang built-in system include paths so clangd can resolve
     //    standard library headers like <math.h>, <stdio.h>, <stdint.h>, etc.
     //    When picolibc is detected, query the compiler with picolibc specs to
     //    get the correct include paths from the toolchain instead of standard libc.
     const resolvedCompiler = args[0];
     if (resolvedCompiler && path.isAbsolute(resolvedCompiler)) {
-      const picolibcFlags = detectPicolibcFlags(args);
+      console.log(
+        `[PIO] Using picolibcFlags: ${picolibcFlags ? picolibcFlags.join(' ') : 'null'}`,
+      );
       const sysDirs = await querySystemIncludes(resolvedCompiler, picolibcFlags || []);
+      console.log(`[PIO] querySystemIncludes returned ${sysDirs.length} dirs:`, sysDirs);
       if (sysDirs.length > 0) {
         // Collect existing -isystem paths to avoid duplicates
         const existingSys = new Set();
@@ -970,17 +1065,53 @@ export async function fixupCompileCommands(
             existingSys.add(path.normalize(args[j].slice('-isystem'.length)));
           }
         }
+        // When picolibc is used, only use picolibc and GCC builtin paths
+        // Standard libc paths are incompatible with picolibc and cause errors
+        const hasPicolibcPath = sysDirs.some((d) => d.includes('picolibc'));
+        let filteredDirs = sysDirs;
+        if (hasPicolibcPath) {
+          // Aggressively filter out any path that looks like standard libc
+          // Match patterns like: xtensa-esp-elf/include, riscv32-esp-elf/include
+          // But NOT: picolibc/... or lib/gcc/... or c++ (those are OK)
+          const removed = sysDirs.filter((d) => {
+            const isStandardLibc =
+              /xtensa-esp-elf[/\\]include$/.test(d) ||
+              /riscv\d+-esp-elf[/\\]include$/.test(d) ||
+              (!d.includes('picolibc') &&
+                !d.includes('/lib/gcc/') &&
+                !d.includes('/c++/'));
+            return isStandardLibc;
+          });
+          filteredDirs = sysDirs.filter((d) => {
+            const isStandardLibc =
+              /xtensa-esp-elf[/\\]include$/.test(d) ||
+              /riscv\d+-esp-elf[/\\]include$/.test(d) ||
+              (!d.includes('picolibc') &&
+                !d.includes('/lib/gcc/') &&
+                !d.includes('/c++/'));
+            return !isStandardLibc;
+          });
+          console.log(`[PIO] FILTERED OUT ${removed.length} paths:`, removed);
+          console.log(`[PIO] KEEPING ${filteredDirs.length} paths:`, filteredDirs);
+        }
+        console.log(`[PIO] Remaining dirs:`, filteredDirs);
+
         const newFlags = [];
-        for (const d of sysDirs) {
-          if (!existingSys.has(path.normalize(d))) {
+        for (const d of filteredDirs) {
+          const normalized = path.normalize(d);
+          if (!existingSys.has(normalized)) {
             newFlags.push('-isystem', toFwd(d));
+          } else {
+            console.log(`[PIO] Skipping duplicate sys dir: ${normalized}`);
           }
         }
+        console.log(`[PIO] Adding ${newFlags.length / 2} new -isystem flags`);
         if (newFlags.length > 0) {
           // Insert before the source file argument (last -c <file>)
           const cIdx = args.lastIndexOf('-c');
           const insertAt = cIdx !== -1 ? cIdx : args.length;
           args.splice(insertAt, 0, ...newFlags);
+          console.log(`[PIO] Inserted at position ${insertAt}`);
         }
       }
     }
@@ -1512,6 +1643,9 @@ export async function ensureClangdConfig(projectDir, observer) {
     // file does not exist yet
   }
 
+  // Detect if picolibc is used by checking compile_commands.json
+  const { usesPicolibc, idedata } = await detectPicolibcInProject(projectDir);
+
   const hasBuiltinHeaders = existing.includes('BuiltinHeaders');
   const hasSuppressDiag =
     existing.includes('pp_expects_filename') && existing.includes('unused-includes');
@@ -1555,14 +1689,71 @@ export async function ensureClangdConfig(projectDir, observer) {
   // CompileFlags block — collect all sub-keys into one block
   const cfParts = [];
   if (!hasBuiltinHeaders) {
+    // Always use QueryDriver to let clangd discover system includes
+    // We'll filter out conflicting standard libc paths via Remove section
     cfParts.push('  BuiltinHeaders: QueryDriver');
   }
+  // Build list of flags to add
+  const addFlags = [];
   if (useEspFlags && !hasAddFlags) {
-    cfParts.push('  Add:', ...ESP_CLANGD_ADD_FLAGS.map((f) => `    - "${f}"`));
+    addFlags.push(...ESP_CLANGD_ADD_FLAGS);
   }
+  // When picolibc is used, add explicit system include paths
+  if (usesPicolibc && idedata?.sysenv) {
+    // Build the picolibc include path from the toolchain package path
+    const toolchainPath = idedata.sysenv.PATH?.split(path.delimiter)
+      .map(p => p.replace(/\/bin$/, ''))
+      .find(p => p.includes('toolchain-'));
+
+    if (toolchainPath) {
+      // Add -nostdinc and -nostdlibinc to prevent default libc includes
+      addFlags.push('-nostdinc');
+
+      // Add picolibc include path dynamically
+      addFlags.push(`-isystem${path.join(toolchainPath, 'picolibc', 'include')}`);
+
+      // Add GCC internal include paths (get version from compiler path)
+      const gccVersion = '15.2.0'; // Could be extracted from compiler -v output if needed
+      const gccInternalPath = path.join(toolchainPath, 'lib', 'gcc');
+      // Find the target triple (xtensa-esp-elf or riscv32-esp-elf)
+      const targetMatch = toolchainPath.match(/toolchain-[^/]+\/([^/]+-esp-elf)/);
+      const targetTriple = targetMatch ? targetMatch[1] : 'xtensa-esp-elf';
+
+      addFlags.push(`-isystem${path.join(gccInternalPath, targetTriple, gccVersion, 'include')}`);
+      addFlags.push(`-isystem${path.join(gccInternalPath, targetTriple, gccVersion, 'include-fixed')}`);
+    }
+  }
+  if (addFlags.length > 0) {
+    cfParts.push('  Add:', ...addFlags.map((f) => `    - "${f}"`));
+  }
+
+  // Build list of flags to remove
+  const removeFlags = [];
   if (useEspFlags && !hasRemoveFlags) {
-    cfParts.push('  Remove:', ...ESP_CLANGD_REMOVE_FLAGS.map((f) => `    - "${f}"`));
+    removeFlags.push(...ESP_CLANGD_REMOVE_FLAGS);
   }
+  // When picolibc is used, remove standard libc paths that conflict with it
+  if (usesPicolibc && idedata?.sysenv && !existing.includes('xtensa-esp-elf/include')) {
+    // Get toolchain path from idedata PATH
+    const toolchainPath = idedata.sysenv.PATH?.split(path.delimiter)
+      .map(p => p.replace(/\/bin$/, ''))
+      .find(p => p.includes('toolchain-'));
+
+    if (toolchainPath) {
+      // Extract target triple from path
+      const targetMatch = toolchainPath.match(/toolchain-[^/]+\/([^/]+-esp-elf)/);
+      const targetTriple = targetMatch ? targetMatch[1] : 'xtensa-esp-elf';
+
+      // Remove standard libc include path
+      const stdLibPath = path.join(toolchainPath, targetTriple, 'include');
+      removeFlags.push(`-I${stdLibPath}`);
+      removeFlags.push(`-isystem${stdLibPath}`);
+    }
+  }
+  if (removeFlags.length > 0) {
+    cfParts.push('  Remove:', ...removeFlags.map((f) => `    - "${f}"`));
+  }
+
   if (cfParts.length > 0) {
     parts.push('CompileFlags:\n' + cfParts.join('\n'));
   }
