@@ -564,7 +564,6 @@ async function querySystemIncludes(compilerPath, extraFlags = []) {
   // Detect language from compiler basename (g++/clang++ → c++, else c)
   const base = path.basename(compilerPath);
   const lang = base.endsWith('g++') || base.endsWith('clang++') ? 'c++' : 'c';
-  console.log(`[PIO] Querying ${base} for ${lang} includes with flags: ${extraFlags.join(' ') || '(none)'}`);
   const cacheKey = `${compilerPath}::${lang}::${extraFlags.join(' ')}`;
 
   if (_sysIncludeCache.has(cacheKey)) {
@@ -598,15 +597,10 @@ async function querySystemIncludes(compilerPath, extraFlags = []) {
     }
   } catch (err) {
     // compiler not runnable or timed out
-    console.warn(`[PIO] querySystemIncludes failed for ${compilerPath}: ${err?.message ?? err}`);
   }
   // Filter out C++ specific paths when querying for C to avoid confusing clangd
   const filteredDirs =
     lang === 'c' ? dirs.filter((d) => !d.includes('/c++/')) : dirs;
-  if (filteredDirs.length !== dirs.length) {
-    console.log(`[PIO] Filtered ${dirs.length - filteredDirs.length} C++ paths from C query`);
-  }
-  console.log(`[PIO] Raw compiler returned ${filteredDirs.length} paths:`, filteredDirs);
   _sysIncludeCache.set(cacheKey, filteredDirs);
   return filteredDirs;
 }
@@ -1063,7 +1057,6 @@ export async function fixupCompileCommands(
           // But keep Arduino newlib paths from esp32-arduino-libs
           if (/xtensa-esp-elf[/\\]include$/.test(includePath) ||
               /riscv\d+-esp-elf[/\\]include$/.test(includePath)) {
-            console.log(`[PIO] Filtering toolchain stdlibc path: ${arg}`);
             shouldFilter = true;
           }
         }
@@ -1072,7 +1065,6 @@ export async function fixupCompileCommands(
           const includePath = args[i + 1];
           if (/xtensa-esp-elf[/\\]include$/.test(includePath) ||
               /riscv\d+-esp-elf[/\\]include$/.test(includePath)) {
-            console.log(`[PIO] Filtering toolchain stdlibc path: -I ${includePath}`);
             i++; // Skip both -I and the path
             shouldFilter = true;
           }
@@ -1082,7 +1074,6 @@ export async function fixupCompileCommands(
           const p = args[i + 1];
           if (/xtensa-esp-elf[/\\]include$/.test(p) ||
               /riscv\d+-esp-elf[/\\]include$/.test(p)) {
-            console.log(`[PIO] Filtering toolchain stdlibc path: -isystem ${p}`);
             i++; // Skip both -isystem and the path
             shouldFilter = true;
           }
@@ -1091,7 +1082,6 @@ export async function fixupCompileCommands(
           const p = arg.slice('-isystem'.length);
           if (/xtensa-esp-elf[/\\]include$/.test(p) ||
               /riscv\d+-esp-elf[/\\]include$/.test(p)) {
-            console.log(`[PIO] Filtering toolchain stdlibc path: ${arg}`);
             shouldFilter = true;
           }
         }
@@ -1109,11 +1099,7 @@ export async function fixupCompileCommands(
     //    get the correct include paths from the toolchain instead of standard libc.
     const resolvedCompiler = args[0];
     if (resolvedCompiler && path.isAbsolute(resolvedCompiler)) {
-      console.log(
-        `[PIO] Using picolibcFlags: ${picolibcFlags ? picolibcFlags.join(' ') : 'null'}`,
-      );
       const sysDirs = await querySystemIncludes(resolvedCompiler, picolibcFlags || []);
-      console.log(`[PIO] querySystemIncludes returned ${sysDirs.length} dirs:`, sysDirs);
       if (sysDirs.length > 0) {
         // Collect existing -isystem paths to avoid duplicates
         const existingSys = new Set();
@@ -1139,27 +1125,20 @@ export async function fixupCompileCommands(
             !/xtensa-esp-elf[/\\]include$/.test(d) &&
             !/riscv\d+-esp-elf[/\\]include$/.test(d)
           );
-          const removed = sysDirs.length - filteredDirs.length;
-          console.log(`[PIO] FILTERED OUT ${removed} paths, KEEPING ${filteredDirs.length} paths:`, filteredDirs);
         }
-        console.log(`[PIO] Remaining dirs:`, filteredDirs);
 
         const newFlags = [];
         for (const d of filteredDirs) {
           const normalized = path.normalize(d);
           if (!existingSys.has(normalized)) {
             newFlags.push('-isystem', toFwd(d));
-          } else {
-            console.log(`[PIO] Skipping duplicate sys dir: ${normalized}`);
-          }
+         }
         }
-        console.log(`[PIO] Adding ${newFlags.length / 2} new -isystem flags`);
         if (newFlags.length > 0) {
           // Insert before the source file argument (last -c <file>)
           const cIdx = args.lastIndexOf('-c');
           const insertAt = cIdx !== -1 ? cIdx : args.length;
           args.splice(insertAt, 0, ...newFlags);
-          console.log(`[PIO] Inserted at position ${insertAt}`);
         }
       }
     }
