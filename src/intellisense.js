@@ -488,7 +488,10 @@ function detectPicolibcFlags(args) {
       continue;
     }
     // Check for joined form: -specs=*picolibc*.specs or --specs=*picolibc*.specs
-    if ((arg.startsWith('-specs=') || arg.startsWith('--specs=')) && arg.includes('picolibc')) {
+    if (
+      (arg.startsWith('-specs=') || arg.startsWith('--specs=')) &&
+      arg.includes('picolibc')
+    ) {
       picolibcFlags.push(arg);
       continue;
     }
@@ -502,7 +505,11 @@ function detectPicolibcFlags(args) {
       }
     }
     // Include sysroot flags if present (affects compiler's include path resolution)
-    if (arg.startsWith('--sysroot=') || arg === '--sysroot' || arg.startsWith('-isysroot')) {
+    if (
+      arg.startsWith('--sysroot=') ||
+      arg === '--sysroot' ||
+      arg.startsWith('-isysroot')
+    ) {
       picolibcFlags.push(arg);
       // For space-separated -isysroot <path>, also include the path
       if ((arg === '--sysroot' || arg === '-isysroot') && i + 1 < args.length) {
@@ -527,11 +534,10 @@ async function querySystemIncludes(compilerPath, extraFlags = []) {
   try {
     const nullDev = IS_WINDOWS ? 'NUL' : '/dev/null';
     const args = ['-E', '-x', lang, '-v', ...extraFlags, nullDev];
-    const { stderr } = await execFileAsync(
-      compilerPath,
-      args,
-      { timeout: 10000, env: { ...process.env, LC_ALL: 'C' } },
-    );
+    const { stderr } = await execFileAsync(compilerPath, args, {
+      timeout: 10000,
+      env: { ...process.env, LC_ALL: 'C' },
+    });
     // Parse the include search path block from GCC/Clang verbose output
     const lines = stderr.split('\n');
     let inBlock = false;
