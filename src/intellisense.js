@@ -518,7 +518,7 @@ async function querySystemIncludes(compilerPath, extraFlags = []) {
   // Detect language from compiler basename (g++/clang++ → c++, else c)
   const base = path.basename(compilerPath);
   const lang = base.endsWith('g++') || base.endsWith('clang++') ? 'c++' : 'c';
-  const cacheKey = `${compilerPath}::${lang}::${extraFlags.slice().sort().join(' ')}`;
+  const cacheKey = `${compilerPath}::${lang}::${extraFlags.join(' ')}`;
 
   if (_sysIncludeCache.has(cacheKey)) {
     return _sysIncludeCache.get(cacheKey);
