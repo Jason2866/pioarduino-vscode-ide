@@ -875,6 +875,63 @@ print(json.dumps({"memory_type": memory_type}))
   }
 }
 
+/**
+ * Inject Arduino newlib platform include path for picolibc projects.
+ *
+ * When using picolibc, the Arduino-specific newlib headers from
+ * esp32-arduino-libs must be included before picolibc headers.
+ * These provide platform-specific definitions compatible with picolibc.
+ */
+async function injectArduinoNewlibPlatformInclude(entries, packagesDir) {
+  // 1. Find the libs package
+  const libsDir = await findArduinoLibsPkgDir(packagesDir);
+  if (!libsDir) {
+    return;
+  }
+
+  // 2. Detect chip family
+  const chip = detectChipFamiliesFromEntries(entries)[0] || null;
+  if (!chip) {
+    return;
+  }
+
+  // 3. Check if newlib platform include exists
+  const newlibInclude = path.join(libsDir, chip, 'include', 'newlib');
+  try {
+    await fs.access(path.join(newlibInclude, 'platform_include', 'sys', 'reent.h'));
+  } catch {
+    return; // newlib platform_include not found
+  }
+
+  // 4. Check if any entry already has this path
+  const normalizedPath = path.normalize(newlibInclude);
+  for (const entry of entries) {
+    const args = entry.arguments || [];
+    const joined = args
+      .map((a) => (typeof a === 'string' ? path.normalize(a) : ''))
+      .join('\0');
+    if (joined.includes(normalizedPath)) {
+      return; // already present
+    }
+  }
+
+  // 5. Inject at the beginning of include paths for priority
+  const newlibFlag = `-I${toFwd(newlibInclude)}`;
+  for (const entry of entries) {
+    if (!entry.arguments) {
+      continue;
+    }
+    // Find first -I or -isystem flag to insert before it
+    const firstIncludeIdx = entry.arguments.findIndex(
+      (a, i) => (a === '-I' || a === '-isystem' ||
+                (typeof a === 'string' && (a.startsWith('-I') || a.startsWith('-isystem')))) &&
+                !(typeof a === 'string' && a.startsWith('-isystem')) // Don't count system paths
+    );
+    const insertAt = firstIncludeIdx !== -1 ? firstIncludeIdx : entry.arguments.length;
+    entry.arguments.splice(insertAt, 0, newlibFlag);
+  }
+}
+
 export async function fixupCompileCommands(
   projectDir,
   envDir,
@@ -1017,24 +1074,41 @@ export async function fixupCompileCommands(
     // 2. Convert relative include paths to absolute
     await absolutizeIncludes(args, dir);
 
-    // 2b. When picolibc is used, filter out newlib-specific include paths
-    // that are incompatible with picolibc (e.g., newlib/platform_include)
+    // 2b. When picolibc is used, filter out toolchain standard libc paths
+    // that are incompatible with picolibc (xtensa-esp-elf/include, riscv*-esp-elf/include).
+    // Keep Arduino-specific newlib paths from esp32-arduino-libs as they are compatible.
     const picolibcFlags = detectPicolibcFlags(args);
     if (picolibcFlags) {
       const filteredArgs = [];
       for (let i = 0; i < args.length; i++) {
         const arg = args[i];
-        // Check for -I<path> or -I <path> containing "newlib"
-        if (typeof arg === 'string' && arg.startsWith('-I') && arg.includes('newlib')) {
-          console.log(`[PIO] Filtering newlib path: ${arg}`);
-          continue; // Skip this arg
+        let shouldFilter = false;
+
+        // Check for -I<path> - filter only toolchain standard libc, not Arduino newlib
+        if (typeof arg === 'string' && arg.startsWith('-I')) {
+          const includePath = arg.slice(2);
+          // Filter toolchain standard libc paths like xtensa-esp-elf/include or riscv*-esp-elf/include
+          // But keep Arduino newlib paths from esp32-arduino-libs
+          if (/xtensa-esp-elf[/\\]include$/.test(includePath) ||
+              /riscv\d+-esp-elf[/\\]include$/.test(includePath)) {
+            console.log(`[PIO] Filtering toolchain stdlibc path: ${arg}`);
+            shouldFilter = true;
+          }
         }
-        if (arg === '-I' && i + 1 < args.length && args[i + 1].includes('newlib')) {
-          console.log(`[PIO] Filtering newlib path: -I ${args[i + 1]}`);
-          i++; // Skip both -I and the path
-          continue;
+        // Check for -I <path> form
+        if (arg === '-I' && i + 1 < args.length) {
+          const includePath = args[i + 1];
+          if (/xtensa-esp-elf[/\\]include$/.test(includePath) ||
+              /riscv\d+-esp-elf[/\\]include$/.test(includePath)) {
+            console.log(`[PIO] Filtering toolchain stdlibc path: -I ${includePath}`);
+            i++; // Skip both -I and the path
+            shouldFilter = true;
+          }
         }
-        filteredArgs.push(arg);
+
+        if (!shouldFilter) {
+          filteredArgs.push(arg);
+        }
       }
       args.splice(0, args.length, ...filteredArgs);
     }
@@ -1131,6 +1205,17 @@ export async function fixupCompileCommands(
   // 4b. Inject framework-arduinoespressif32-libs SDK include path
   //     (contains sdkconfig.h) which PIO's compiledb target omits.
   await injectLibsSdkconfigInclude(entries, projectDir, packagesDir, envDir);
+
+  // 4c. When picolibc is used, inject Arduino newlib platform include path
+  //     which provides compatible headers for picolibc.
+  // Check if any entry uses picolibc
+  const hasPicolibc = entries.some((e) => {
+    const args = e.arguments || [];
+    return args.some((a) => typeof a === 'string' && a.includes('picolibc.specs'));
+  });
+  if (hasPicolibc) {
+    await injectArduinoNewlibPlatformInclude(entries, packagesDir);
+  }
 
   // 5. Add synthetic entries for project header/source files that aren't in
   //    the compilation database. clangd uses directory proximity to match
