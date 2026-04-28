@@ -881,29 +881,23 @@ async function injectArduinoNewlibPlatformInclude(entries, packagesDir) {
     return; // newlib platform_include not found
   }
 
-  // 4. Check if any entry already has this path
+  // 4. Inject at the beginning of include paths for priority (per-entry check)
   const normalizedPath = path.normalize(newlibInclude);
-  for (const entry of entries) {
-    const args = entry.arguments || [];
-    const joined = args
-      .map((a) => (typeof a === 'string' ? path.normalize(a) : ''))
-      .join('\0');
-    if (joined.includes(normalizedPath)) {
-      return; // already present
-    }
-  }
-
-  // 5. Inject at the beginning of include paths for priority
   const newlibFlag = `-I${toFwd(newlibInclude)}`;
   for (const entry of entries) {
     if (!entry.arguments) {
       continue;
     }
-    // Find first -I or -isystem flag to insert before it
+    // Check if this specific entry already has the path
+    const joined = entry.arguments
+      .map((a) => (typeof a === 'string' ? path.normalize(a) : ''))
+      .join('\0');
+    if (joined.includes(normalizedPath)) {
+      continue; // skip this entry
+    }
+    // Find first -I flag to insert before it (simplified: -I but not -isystem)
     const firstIncludeIdx = entry.arguments.findIndex(
-      (a, i) => (a === '-I' || a === '-isystem' ||
-                (typeof a === 'string' && (a.startsWith('-I') || a.startsWith('-isystem')))) &&
-                !(typeof a === 'string' && a.startsWith('-isystem')) // Don't count system paths
+      (a) => typeof a === 'string' && a.startsWith('-I') && !a.startsWith('-isystem')
     );
     const insertAt = firstIncludeIdx !== -1 ? firstIncludeIdx : entry.arguments.length;
     entry.arguments.splice(insertAt, 0, newlibFlag);
@@ -1083,6 +1077,24 @@ export async function fixupCompileCommands(
             shouldFilter = true;
           }
         }
+        // Also handle -isystem <path> and -isystem<path>
+        if (!shouldFilter && arg === '-isystem' && i + 1 < args.length) {
+          const p = args[i + 1];
+          if (/xtensa-esp-elf[/\\]include$/.test(p) ||
+              /riscv\d+-esp-elf[/\\]include$/.test(p)) {
+            console.log(`[PIO] Filtering toolchain stdlibc path: -isystem ${p}`);
+            i++; // Skip both -isystem and the path
+            shouldFilter = true;
+          }
+        }
+        if (!shouldFilter && typeof arg === 'string' && arg.startsWith('-isystem') && arg.length > '-isystem'.length) {
+          const p = arg.slice('-isystem'.length);
+          if (/xtensa-esp-elf[/\\]include$/.test(p) ||
+              /riscv\d+-esp-elf[/\\]include$/.test(p)) {
+            console.log(`[PIO] Filtering toolchain stdlibc path: ${arg}`);
+            shouldFilter = true;
+          }
+        }
 
         if (!shouldFilter) {
           filteredArgs.push(arg);
@@ -1117,34 +1129,18 @@ export async function fixupCompileCommands(
             existingSys.add(path.normalize(args[j].slice('-isystem'.length)));
           }
         }
-        // When picolibc is used, only use picolibc and GCC builtin paths
-        // Standard libc paths are incompatible with picolibc and cause errors
+        // When picolibc is used, filter out only the known-bad standard libc paths
+        // This preserves Clang-based paths (/lib/clang/) and Windows paths properly
         const hasPicolibcPath = sysDirs.some((d) => d.includes('picolibc'));
         let filteredDirs = sysDirs;
         if (hasPicolibcPath) {
-          // Aggressively filter out any path that looks like standard libc
-          // Match patterns like: xtensa-esp-elf/include, riscv32-esp-elf/include
-          // But NOT: picolibc/... or lib/gcc/... or c++ (those are OK)
-          const removed = sysDirs.filter((d) => {
-            const isStandardLibc =
-              /xtensa-esp-elf[/\\]include$/.test(d) ||
-              /riscv\d+-esp-elf[/\\]include$/.test(d) ||
-              (!d.includes('picolibc') &&
-                !d.includes('/lib/gcc/') &&
-                !d.includes('/c++/'));
-            return isStandardLibc;
-          });
-          filteredDirs = sysDirs.filter((d) => {
-            const isStandardLibc =
-              /xtensa-esp-elf[/\\]include$/.test(d) ||
-              /riscv\d+-esp-elf[/\\]include$/.test(d) ||
-              (!d.includes('picolibc') &&
-                !d.includes('/lib/gcc/') &&
-                !d.includes('/c++/'));
-            return !isStandardLibc;
-          });
-          console.log(`[PIO] FILTERED OUT ${removed.length} paths:`, removed);
-          console.log(`[PIO] KEEPING ${filteredDirs.length} paths:`, filteredDirs);
+          // Strip only the known-bad patterns (same regex used in step 2b)
+          filteredDirs = sysDirs.filter((d) =>
+            !/xtensa-esp-elf[/\\]include$/.test(d) &&
+            !/riscv\d+-esp-elf[/\\]include$/.test(d)
+          );
+          const removed = sysDirs.length - filteredDirs.length;
+          console.log(`[PIO] FILTERED OUT ${removed} paths, KEEPING ${filteredDirs.length} paths:`, filteredDirs);
         }
         console.log(`[PIO] Remaining dirs:`, filteredDirs);
 
@@ -1714,6 +1710,7 @@ export async function ensureClangdConfig(projectDir, observer) {
     existing.includes('pp_expects_filename') && existing.includes('unused-includes');
   const hasRemoveFlags = ESP_CLANGD_REMOVE_FLAGS.every((f) => existing.includes(f));
   const hasAddFlags = ESP_CLANGD_ADD_FLAGS.every((f) => existing.includes(f));
+  const hasNostdinc = existing.includes('"-nostdinc"');
   // Respect any existing Index.Background entry (user may have set Skip, etc.)
   const hasIndexBackground = /^Index:\s*\n(?:.*\n)*?\s+Background:/m.test(existing);
   // .ino files are not in compile_commands.json (PIO converts them to .cpp at
@@ -1763,8 +1760,11 @@ export async function ensureClangdConfig(projectDir, observer) {
   }
   // When picolibc is used, add -nostdinc to prevent default libc includes
   // The Arduino newlib platform include is handled by injectArduinoNewlibPlatformInclude
-  if (usesPicolibc) {
+  if (usesPicolibc && !hasNostdinc) {
     addFlags.push('-nostdinc');
+  } else if (!usesPicolibc && hasNostdinc) {
+    // Remove -nostdinc from existing content when picolibc is no longer used
+    existing = existing.replace(/\n?\s*-\s*"-nostdinc"/g, '');
   }
   if (addFlags.length > 0) {
     cfParts.push('  Add:', ...addFlags.map((f) => `    - "${f}"`));
