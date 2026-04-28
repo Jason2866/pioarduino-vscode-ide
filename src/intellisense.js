@@ -595,7 +595,7 @@ async function querySystemIncludes(compilerPath, extraFlags = []) {
         }
       }
     }
-  } catch (err) {
+  } catch {
     // compiler not runnable or timed out
   }
   // Filter out C++ specific paths when querying for C to avoid confusing clangd
@@ -1132,7 +1132,7 @@ export async function fixupCompileCommands(
           const normalized = path.normalize(d);
           if (!existingSys.has(normalized)) {
             newFlags.push('-isystem', toFwd(d));
-         }
+          }
         }
         if (newFlags.length > 0) {
           // Insert before the source file argument (last -c <file>)
