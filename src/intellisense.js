@@ -546,39 +546,17 @@ function detectPicolibcFlags(args) {
 
 /**
  * Detect if the project uses picolibc by checking compile_commands.json
- * for -specs=picolibc.specs flags. Also returns idedata if available.
+ * for -specs=picolibc.specs flags.
  */
 async function detectPicolibcInProject(projectDir) {
   try {
     // Check the processed clangd compile_commands.json
     const clangdPath = path.join(projectDir, '.cache', 'clangd', 'compile_commands.json');
     const content = await fs.readFile(clangdPath, 'utf-8');
-    const usesPicolibc = content.includes('-specs=picolibc.specs');
-
-    // Try to read idedata.json from any environment subdirectory
-    let idedata = null;
-    try {
-      const buildDir = path.join(projectDir, '.pio', 'build');
-      const entries = await fs.readdir(buildDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const idedataPath = path.join(buildDir, entry.name, 'idedata.json');
-          try {
-            idedata = JSON.parse(await fs.readFile(idedataPath, 'utf-8'));
-            break; // Found it
-          } catch {
-            // Continue to next directory
-          }
-        }
-      }
-    } catch {
-      // build dir doesn't exist or can't be read
-    }
-
-    return { usesPicolibc, idedata };
+    return content.includes('-specs=picolibc.specs');
   } catch {
     // File doesn't exist or can't be read
-    return { usesPicolibc: false, idedata: null };
+    return false;
   }
 }
 
@@ -1729,7 +1707,7 @@ export async function ensureClangdConfig(projectDir, observer) {
   }
 
   // Detect if picolibc is used by checking compile_commands.json
-  const { usesPicolibc, idedata } = await detectPicolibcInProject(projectDir);
+  const usesPicolibc = await detectPicolibcInProject(projectDir);
 
   const hasBuiltinHeaders = existing.includes('BuiltinHeaders');
   const hasSuppressDiag =
@@ -1783,30 +1761,10 @@ export async function ensureClangdConfig(projectDir, observer) {
   if (useEspFlags && !hasAddFlags) {
     addFlags.push(...ESP_CLANGD_ADD_FLAGS);
   }
-  // When picolibc is used, add explicit system include paths
-  if (usesPicolibc && idedata?.sysenv) {
-    // Build the picolibc include path from the toolchain package path
-    const toolchainPath = idedata.sysenv.PATH?.split(path.delimiter)
-      .map(p => p.replace(/\/bin$/, ''))
-      .find(p => p.includes('toolchain-'));
-
-    if (toolchainPath) {
-      // Add -nostdinc and -nostdlibinc to prevent default libc includes
-      addFlags.push('-nostdinc');
-
-      // Add picolibc include path dynamically
-      addFlags.push(`-isystem${path.join(toolchainPath, 'picolibc', 'include')}`);
-
-      // Add GCC internal include paths (get version from compiler path)
-      const gccVersion = '15.2.0'; // Could be extracted from compiler -v output if needed
-      const gccInternalPath = path.join(toolchainPath, 'lib', 'gcc');
-      // Find the target triple (xtensa-esp-elf or riscv32-esp-elf)
-      const targetMatch = toolchainPath.match(/toolchain-[^/]+\/([^/]+-esp-elf)/);
-      const targetTriple = targetMatch ? targetMatch[1] : 'xtensa-esp-elf';
-
-      addFlags.push(`-isystem${path.join(gccInternalPath, targetTriple, gccVersion, 'include')}`);
-      addFlags.push(`-isystem${path.join(gccInternalPath, targetTriple, gccVersion, 'include-fixed')}`);
-    }
+  // When picolibc is used, add -nostdinc to prevent default libc includes
+  // The Arduino newlib platform include is handled by injectArduinoNewlibPlatformInclude
+  if (usesPicolibc) {
+    addFlags.push('-nostdinc');
   }
   if (addFlags.length > 0) {
     cfParts.push('  Add:', ...addFlags.map((f) => `    - "${f}"`));
@@ -1818,22 +1776,12 @@ export async function ensureClangdConfig(projectDir, observer) {
     removeFlags.push(...ESP_CLANGD_REMOVE_FLAGS);
   }
   // When picolibc is used, remove standard libc paths that conflict with it
-  if (usesPicolibc && idedata?.sysenv && !existing.includes('xtensa-esp-elf/include')) {
-    // Get toolchain path from idedata PATH
-    const toolchainPath = idedata.sysenv.PATH?.split(path.delimiter)
-      .map(p => p.replace(/\/bin$/, ''))
-      .find(p => p.includes('toolchain-'));
-
-    if (toolchainPath) {
-      // Extract target triple from path
-      const targetMatch = toolchainPath.match(/toolchain-[^/]+\/([^/]+-esp-elf)/);
-      const targetTriple = targetMatch ? targetMatch[1] : 'xtensa-esp-elf';
-
-      // Remove standard libc include path
-      const stdLibPath = path.join(toolchainPath, targetTriple, 'include');
-      removeFlags.push(`-I${stdLibPath}`);
-      removeFlags.push(`-isystem${stdLibPath}`);
-    }
+  // Use wildcard patterns to match both Xtensa and RISC-V toolchain paths
+  if (usesPicolibc && !existing.includes('xtensa-esp-elf/include')) {
+    removeFlags.push('-I*/xtensa-esp-elf/include');
+    removeFlags.push('-isystem*/xtensa-esp-elf/include');
+    removeFlags.push('-I*/riscv*-esp-elf/include');
+    removeFlags.push('-isystem*/riscv*-esp-elf/include');
   }
   if (removeFlags.length > 0) {
     cfParts.push('  Remove:', ...removeFlags.map((f) => `    - "${f}"`));
