@@ -168,6 +168,33 @@ export default class ProjectTaskManager {
   }
 
   async runTask(task) {
+    // If the user triggers the standalone "Monitor" task and the
+    // ESP Crash Decoder extension (Jason2866.esp-decoder) is installed,
+    // launch its serial monitor instead of the PlatformIO CLI terminal.
+    // The currently selected upload/monitor port (set via the pioarduino
+    // status-bar Port Switcher) is handed over so ESP Decoder connects
+    // immediately without prompting the user again. When the port is "Auto"
+    // (i.e. no explicit selection) we still ask the decoder to connect, in
+    // which case it will fall back to its own port picker.
+    if (task && task.name === 'Monitor') {
+      const decoder = vscode.extensions.getExtension('Jason2866.esp-decoder');
+      if (decoder) {
+        try {
+          if (!decoder.isActive) {
+            await decoder.activate();
+          }
+          await vscode.commands.executeCommand('esp-decoder.openMonitor', {
+            port: this._customPort || undefined,
+            autoConnect: true,
+          });
+          return;
+        } catch (err) {
+          notifyError('ESP Crash Decoder Monitor', err);
+          // fall through to the regular CLI monitor on failure
+        }
+      }
+    }
+
     this._autoCloseSerialMonitor(task);
 
     // Wait for all port-owning tasks (upload*, erase*) until all subscribers
