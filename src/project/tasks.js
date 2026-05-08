@@ -183,8 +183,12 @@ export default class ProjectTaskManager {
           if (!decoder.isActive) {
             await decoder.activate();
           }
+          const baudRate = await this._getMonitorSpeed(
+            this.projectObserver.getSelectedEnv(),
+          );
           await vscode.commands.executeCommand('esp-decoder.openMonitor', {
             port: this._customPort || undefined,
+            baudRate: baudRate || undefined,
             autoConnect: true,
           });
           return;
@@ -324,6 +328,24 @@ export default class ProjectTaskManager {
       args.includes('upload') ||
       ProjectTaskManager._isPortOwningTarget(this._getTarget(args))
     );
+  }
+
+  // Returns the configured `monitor_speed` for the given environment via the
+  // PlatformIO config API exposed by pioarduino-node-helpers (handles section
+  // interpolation, `extends = …`, [platformio] defaults). Returns undefined
+  // when nothing is configured so that ESP Decoder keeps its own default
+  // baud rate.
+  async _getMonitorSpeed(envName) {
+    try {
+      const config = await this.projectObserver.getConfig();
+      const speed = config.getEnvMonitorSpeed(envName);
+      if (Number.isInteger(speed) && speed > 0) {
+        return speed;
+      }
+    } catch {
+      // ignore — keep ESP Decoder default
+    }
+    return undefined;
   }
 
   // Returns true only for real upload tasks (upload, uploadfs, …).
