@@ -884,10 +884,7 @@ async function injectArduinoNewlibPlatformInclude(entries, packagesDir) {
   }
 }
 
-export async function fixupCompileCommands(
-  projectDir,
-  envDir,
-) {
+export async function fixupCompileCommands(projectDir, envDir) {
   if (
     getActiveBackendId() !== 'clangd' ||
     !projectDir ||

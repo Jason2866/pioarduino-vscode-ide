@@ -20,13 +20,14 @@ jest.mock('../utils', () => ({
   listCoreSerialPorts: jest.fn(),
 }));
 
-
 function makeDocument(lines, uriPath = '/workspace/project/platformio.ini') {
   const fullText = lines.join('\n');
   return {
     uri: vscode.Uri.file(uriPath),
     getText: jest.fn((range) => {
-      if (!range) {return fullText;}
+      if (!range) {
+        return fullText;
+      }
       const lineStarts = [];
       let offset = 0;
       for (const line of lines) {
@@ -41,12 +42,7 @@ function makeDocument(lines, uriPath = '/workspace/project/platformio.ini') {
     getWordRangeAtPosition: jest.fn((position) => {
       const line = lines[position.line] || '';
       const word = line.split(/\s|=/)[0];
-      return new vscode.Range(
-        position.line,
-        0,
-        position.line,
-        word.length,
-      );
+      return new vscode.Range(position.line, 0, position.line, word.length);
     }),
   };
 }
@@ -59,7 +55,9 @@ describe('ProjectConfigLanguageProvider', () => {
   describe('constructor', () => {
     it('registers providers and creates diagnostic collection', () => {
       const provider = new ProjectConfigLanguageProvider();
-      expect(vscode.languages.createDiagnosticCollection).toHaveBeenCalledWith('PlatformIO');
+      expect(vscode.languages.createDiagnosticCollection).toHaveBeenCalledWith(
+        'PlatformIO',
+      );
       expect(vscode.languages.registerHoverProvider).toHaveBeenCalled();
       expect(vscode.languages.registerCompletionItemProvider).toHaveBeenCalled();
       expect(vscode.workspace.onDidOpenTextDocument).toHaveBeenCalled();
@@ -281,7 +279,14 @@ describe('ProjectConfigLanguageProvider', () => {
     it('returns Hover when word matches an option', async () => {
       const provider = new ProjectConfigLanguageProvider();
       const options = [
-        { name: 'upload_port', group: 'upload', type: 'string', multiple: false, description: 'Port', scope: 'env' },
+        {
+          name: 'upload_port',
+          group: 'upload',
+          type: 'string',
+          multiple: false,
+          description: 'Port',
+          scope: 'env',
+        },
       ];
       provider.getOptions = jest.fn().mockResolvedValue(options);
       const doc = makeDocument(['[env]', 'upload_port = /dev/ttyUSB0']);
@@ -294,7 +299,9 @@ describe('ProjectConfigLanguageProvider', () => {
     it('falls through to package hover for unmatched words', async () => {
       const provider = new ProjectConfigLanguageProvider();
       provider.getOptions = jest.fn().mockResolvedValue([]);
-      provider.getOptionAt = jest.fn().mockResolvedValue({ name: 'upload_port', group: 'upload' });
+      provider.getOptionAt = jest
+        .fn()
+        .mockResolvedValue({ name: 'upload_port', group: 'upload' });
       const doc = makeDocument(['[env]', 'platform = espressif32']);
       const pos = new vscode.Position(1, 0);
       const result = await provider.provideHover(doc, pos);
@@ -306,7 +313,9 @@ describe('ProjectConfigLanguageProvider', () => {
   describe('providePackageHover', () => {
     it('returns undefined for non-package options', async () => {
       const provider = new ProjectConfigLanguageProvider();
-      provider.getOptionAt = jest.fn().mockResolvedValue({ name: 'upload_port', group: 'upload' });
+      provider.getOptionAt = jest
+        .fn()
+        .mockResolvedValue({ name: 'upload_port', group: 'upload' });
       const doc = makeDocument(['[env]', 'upload_port = /dev/ttyUSB0']);
       const pos = new vscode.Position(1, 5);
       const result = await provider.providePackageHover(doc, pos);
@@ -315,7 +324,9 @@ describe('ProjectConfigLanguageProvider', () => {
 
     it('returns registry link for platform option with owner/name', async () => {
       const provider = new ProjectConfigLanguageProvider();
-      provider.getOptionAt = jest.fn().mockResolvedValue({ name: 'platform', group: 'platform' });
+      provider.getOptionAt = jest
+        .fn()
+        .mockResolvedValue({ name: 'platform', group: 'platform' });
       const doc = makeDocument(['[env]', 'platform = espressif32']);
       const pos = new vscode.Position(1, 5);
       const result = await provider.providePackageHover(doc, pos);
@@ -325,7 +336,9 @@ describe('ProjectConfigLanguageProvider', () => {
 
     it('returns registry link for lib_deps with owner/name', async () => {
       const provider = new ProjectConfigLanguageProvider();
-      provider.getOptionAt = jest.fn().mockResolvedValue({ name: 'lib_deps', group: 'lib' });
+      provider.getOptionAt = jest
+        .fn()
+        .mockResolvedValue({ name: 'lib_deps', group: 'lib' });
       const doc = makeDocument(['[env]', 'lib_deps = knolleary/PubSubClient']);
       const pos = new vscode.Position(1, 5);
       const result = await provider.providePackageHover(doc, pos);
@@ -336,7 +349,9 @@ describe('ProjectConfigLanguageProvider', () => {
 
     it('returns search link for platform without owner', async () => {
       const provider = new ProjectConfigLanguageProvider();
-      provider.getOptionAt = jest.fn().mockResolvedValue({ name: 'platform', group: 'platform' });
+      provider.getOptionAt = jest
+        .fn()
+        .mockResolvedValue({ name: 'platform', group: 'platform' });
       const doc = makeDocument(['[env]', 'platform = some-platform']);
       const pos = new vscode.Position(1, 5);
       const result = await provider.providePackageHover(doc, pos);
@@ -390,8 +405,22 @@ describe('ProjectConfigLanguageProvider', () => {
     it('returns completion items scoped to current section', async () => {
       const provider = new ProjectConfigLanguageProvider();
       const options = [
-        { name: 'upload_port', group: 'upload', type: 'string', multiple: false, description: 'Port', scope: 'env' },
-        { name: 'description', group: 'platformio', type: 'string', multiple: false, description: 'Desc', scope: 'platformio' },
+        {
+          name: 'upload_port',
+          group: 'upload',
+          type: 'string',
+          multiple: false,
+          description: 'Port',
+          scope: 'env',
+        },
+        {
+          name: 'description',
+          group: 'platformio',
+          type: 'string',
+          multiple: false,
+          description: 'Desc',
+          scope: 'platformio',
+        },
       ];
       provider.getOptions = jest.fn().mockResolvedValue(options);
       const doc = makeDocument(['[env]', '']);
@@ -404,7 +433,14 @@ describe('ProjectConfigLanguageProvider', () => {
     it('returns inline completion items when isInline is true', async () => {
       const provider = new ProjectConfigLanguageProvider();
       const options = [
-        { name: 'upload_port', group: 'upload', type: 'string', multiple: false, description: 'Port', scope: 'env' },
+        {
+          name: 'upload_port',
+          group: 'upload',
+          type: 'string',
+          multiple: false,
+          description: 'Port',
+          scope: 'env',
+        },
       ];
       provider.getOptions = jest.fn().mockResolvedValue(options);
       const doc = makeDocument(['[env]', '']);
@@ -446,7 +482,12 @@ describe('ProjectConfigLanguageProvider', () => {
 
     it('routes other options to provideTypedCompletionValues', async () => {
       const provider = new ProjectConfigLanguageProvider();
-      const option = { name: 'build_type', type: 'choice', choices: ['release', 'debug'], default: 'release' };
+      const option = {
+        name: 'build_type',
+        type: 'choice',
+        choices: ['release', 'debug'],
+        default: 'release',
+      };
       provider.getOptionAt = jest.fn().mockResolvedValue(option);
       provider.provideTypedCompletionValues = jest.fn().mockResolvedValue([]);
       const doc = makeDocument(['[env]', 'build_type = ']);

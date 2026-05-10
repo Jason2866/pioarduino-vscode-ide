@@ -44,10 +44,7 @@ describe('ProjectTasksTreeProvider', () => {
     });
 
     it('returns all tasks when no env is specified', () => {
-      const tasks = [
-        makeTask('Build', undefined),
-        makeTask('Upload', 'env1'),
-      ];
+      const tasks = [makeTask('Build', undefined), makeTask('Upload', 'env1')];
       const provider = new ProjectTasksTreeProvider(1, ['env1'], tasks);
       // env=undefined → first filter matches tasks where coreEnv === undefined
       const result = provider.getEnvTasks();
@@ -140,7 +137,13 @@ describe('ProjectTasksTreeProvider', () => {
     });
 
     it('appends " All" for multienv tasks in multienv project', () => {
-      const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], [], undefined, true);
+      const provider = new ProjectTasksTreeProvider(
+        1,
+        ['env1', 'env2'],
+        [],
+        undefined,
+        true,
+      );
       const task = makeTask('Build', undefined, undefined, true);
       const treeItem = provider.taskToTreeItem(task);
       expect(treeItem.label).toBe('Build All');
@@ -155,7 +158,13 @@ describe('ProjectTasksTreeProvider', () => {
 
     it('does not append " All" when task has a coreEnv even if multienv=true', () => {
       // coreEnv is set → the condition !task.coreEnv is false → no " All"
-      const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], [], undefined, true);
+      const provider = new ProjectTasksTreeProvider(
+        1,
+        ['env1', 'env2'],
+        [],
+        undefined,
+        true,
+      );
       const task = makeTask('Build', 'env1', undefined, true);
       const treeItem = provider.taskToTreeItem(task);
       expect(treeItem.label).toBe('Build');
@@ -197,20 +206,38 @@ describe('ProjectTasksTreeProvider', () => {
     });
 
     it('returns all envs with correct expand state', () => {
-      const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], [], 'env1', false);
+      const provider = new ProjectTasksTreeProvider(
+        1,
+        ['env1', 'env2'],
+        [],
+        'env1',
+        false,
+      );
       const children = provider.getRootChildren();
       expect(children).toHaveLength(3); // undefined + env1 + env2
       expect(children[0].label).toBe('Default');
       // Default node env is undefined, so collapsibleState is always Collapsed
-      expect(children[0].collapsibleState).toBe(vscode.TreeItemCollapsibleState.Collapsed);
+      expect(children[0].collapsibleState).toBe(
+        vscode.TreeItemCollapsibleState.Collapsed,
+      );
       expect(children[1].label).toBe('env1');
-      expect(children[1].collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
+      expect(children[1].collapsibleState).toBe(
+        vscode.TreeItemCollapsibleState.Expanded,
+      );
       expect(children[2].label).toBe('env2');
-      expect(children[2].collapsibleState).toBe(vscode.TreeItemCollapsibleState.Collapsed);
+      expect(children[2].collapsibleState).toBe(
+        vscode.TreeItemCollapsibleState.Collapsed,
+      );
     });
 
     it('expands only selected env when multiEnvProject is true', () => {
-      const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], [], 'env1', false);
+      const provider = new ProjectTasksTreeProvider(
+        1,
+        ['env1', 'env2'],
+        [],
+        'env1',
+        false,
+      );
       const children = provider.getRootChildren();
       const env1Item = children.find((c) => c.label === 'env1');
       const env2Item = children.find((c) => c.label === 'env2');
@@ -226,7 +253,13 @@ describe('ProjectTasksTreeProvider', () => {
     });
 
     it('collapses all envs when no env is selected and multiEnvProject is true', () => {
-      const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], [], undefined, false);
+      const provider = new ProjectTasksTreeProvider(
+        1,
+        ['env1', 'env2'],
+        [],
+        undefined,
+        false,
+      );
       const children = provider.getRootChildren();
       const env1Item = children.find((c) => c.label === 'env1');
       const env2Item = children.find((c) => c.label === 'env2');
@@ -367,7 +400,13 @@ describe('ProjectTasksTreeProvider', () => {
     });
 
     it('returns root children when selectedEnv is set but multiEnvExplorer is true', () => {
-      const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], [], 'env1', true);
+      const provider = new ProjectTasksTreeProvider(
+        1,
+        ['env1', 'env2'],
+        [],
+        'env1',
+        true,
+      );
       const children = provider.getChildren(undefined);
       // multiEnvExplorer=true → falls through to getRootChildren
       expect(children[0].label).toBe('Default');

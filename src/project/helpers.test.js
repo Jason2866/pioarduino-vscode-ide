@@ -69,7 +69,9 @@ describe('getPIOProjectDirs', () => {
       { uri: { fsPath: '/workspace/other-project' } },
     ];
     fs.accessSync.mockImplementation((p) => {
-      if (p.includes('pio-project')) {return;}
+      if (p.includes('pio-project')) {
+        return;
+      }
       throw new Error('ENOENT');
     });
     expect(getPIOProjectDirs()).toEqual(['/workspace/pio-project']);
@@ -89,17 +91,13 @@ describe('getActiveEditorProjectDir', () => {
   });
 
   it('returns undefined when no editor is active', () => {
-    vscode.workspace.workspaceFolders = [
-      { uri: { fsPath: '/workspace/pio-project' } },
-    ];
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/workspace/pio-project' } }];
     vscode.window.activeTextEditor = undefined;
     expect(getActiveEditorProjectDir()).toBeUndefined();
   });
 
   it('returns undefined when active editor scheme is not file', () => {
-    vscode.workspace.workspaceFolders = [
-      { uri: { fsPath: '/workspace/pio-project' } },
-    ];
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/workspace/pio-project' } }];
     vscode.window.activeTextEditor = {
       document: { uri: { scheme: 'untitled' } },
     };
@@ -108,11 +106,11 @@ describe('getActiveEditorProjectDir', () => {
 
   it('returns project dir when editor belongs to a PIO project workspace', () => {
     fs.accessSync.mockImplementation(() => {});
-    vscode.workspace.workspaceFolders = [
-      { uri: { fsPath: '/workspace/pio-project' } },
-    ];
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/workspace/pio-project' } }];
     vscode.window.activeTextEditor = {
-      document: { uri: { scheme: 'file', fsPath: '/workspace/pio-project/src/main.cpp' } },
+      document: {
+        uri: { scheme: 'file', fsPath: '/workspace/pio-project/src/main.cpp' },
+      },
     };
     vscode.workspace.getWorkspaceFolder.mockReturnValue({
       uri: { fsPath: '/workspace/pio-project' },
@@ -121,14 +119,14 @@ describe('getActiveEditorProjectDir', () => {
   });
 
   it('returns undefined when editor workspace is not a PIO project', () => {
-    vscode.workspace.workspaceFolders = [
-      { uri: { fsPath: '/workspace/pio-project' } },
-    ];
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/workspace/pio-project' } }];
     vscode.window.activeTextEditor = {
       document: { uri: { scheme: 'file', fsPath: '/workspace/other/src/main.cpp' } },
     };
     fs.accessSync.mockImplementation((p) => {
-      if (p.includes('pio-project')) {return;}
+      if (p.includes('pio-project')) {
+        return;
+      }
       throw new Error('ENOENT');
     });
     vscode.workspace.getWorkspaceFolder.mockReturnValue({
@@ -139,11 +137,11 @@ describe('getActiveEditorProjectDir', () => {
 
   it('returns undefined when getWorkspaceFolder returns null', () => {
     fs.accessSync.mockImplementation(() => {});
-    vscode.workspace.workspaceFolders = [
-      { uri: { fsPath: '/workspace/pio-project' } },
-    ];
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/workspace/pio-project' } }];
     vscode.window.activeTextEditor = {
-      document: { uri: { scheme: 'file', fsPath: '/workspace/pio-project/src/main.cpp' } },
+      document: {
+        uri: { scheme: 'file', fsPath: '/workspace/pio-project/src/main.cpp' },
+      },
     };
     vscode.workspace.getWorkspaceFolder.mockReturnValue(null);
     expect(getActiveEditorProjectDir()).toBeUndefined();
@@ -207,7 +205,9 @@ describe('updateProjectItemState', () => {
       return undefined;
     });
     fs.accessSync.mockImplementation((p) => {
-      if (p.includes('removed')) {throw new Error('ENOENT');}
+      if (p.includes('removed')) {
+        throw new Error('ENOENT');
+      }
     });
     updateProjectItemState('/workspace/project1', 'selectedEnv', 'prod');
     expect(mockGlobalState.update).toHaveBeenCalledWith(
