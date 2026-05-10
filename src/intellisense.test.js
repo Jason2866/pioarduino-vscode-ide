@@ -404,18 +404,22 @@ describe('watchIdfCompileCommands', () => {
     expect(onReady).toHaveBeenCalledTimes(1);
   });
 
-  it('does not call onReady twice when both watchers fire simultaneously', async () => {
+  it('coalesces a second event that arrives while the first is still running', async () => {
     const onReady = jest.fn().mockResolvedValue(undefined);
     watchIdfCompileCommands(
       '/workspace/project',
       '/workspace/project/.pio/build/env1',
       onReady,
     );
-    // Both handlers fire at the same time
+    // Both handlers fire at the same time — the second sets queued=true and
+    // returns immediately; after the first completes, onReady is called once
+    // more for the queued event.
     const rootHandler = mockWatcher.onDidCreate.mock.calls[0][0];
     const envHandler = mockWatcher.onDidCreate.mock.calls[1][0];
     await Promise.all([rootHandler(), envHandler()]);
-    expect(onReady).toHaveBeenCalledTimes(1);
+    // onReady is called once for the first event, then once more for the
+    // coalesced queued event — total 2 calls, not 1 dropped.
+    expect(onReady).toHaveBeenCalledTimes(2);
   });
 });
 

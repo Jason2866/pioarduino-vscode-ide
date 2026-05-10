@@ -58,7 +58,10 @@ const mockGlobalState = require('../main').extension.context.globalState;
 // ─── constructor ─────────────────────────────────────────────────────────────
 
 describe('InstallationManager constructor', () => {
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.restoreAllMocks();
+  });
 
   it('reads workspace configuration on construction', () => {
     const spy = jest.spyOn(vscode.workspace, 'getConfiguration');
@@ -85,7 +88,10 @@ describe('InstallationManager constructor', () => {
 // ─── lock / unlock / locked ───────────────────────────────────────────────────
 
 describe('lock / unlock / locked', () => {
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.restoreAllMocks();
+  });
 
   it('lock() writes the current timestamp to global state', async () => {
     const mgr = new InstallationManager();
@@ -125,7 +131,10 @@ describe('lock / unlock / locked', () => {
 // ─── onDidStatusChange ────────────────────────────────────────────────────────
 
 describe('onDidStatusChange', () => {
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.restoreAllMocks();
+  });
 
   it('refreshes the lock when currently locked', async () => {
     mockGlobalState.get.mockReturnValue(new Date().getTime());
@@ -147,7 +156,10 @@ describe('onDidStatusChange', () => {
 // ─── createStages ─────────────────────────────────────────────────────────────
 
 describe('createStages', () => {
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.restoreAllMocks();
+  });
 
   it('populates this.stages on first call', () => {
     const mgr = new InstallationManager();
@@ -168,7 +180,10 @@ describe('createStages', () => {
 // ─── check ────────────────────────────────────────────────────────────────────
 
 describe('check', () => {
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.restoreAllMocks();
+  });
 
   it('returns true when all stages pass', async () => {
     const mgr = new InstallationManager();
@@ -204,7 +219,10 @@ describe('check', () => {
 // ─── install ──────────────────────────────────────────────────────────────────
 
 describe('install', () => {
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.restoreAllMocks();
+  });
 
   it('shuts down PIO Home servers before installing', async () => {
     const mgr = new InstallationManager();
@@ -258,7 +276,10 @@ describe('install', () => {
 // ─── destroy ──────────────────────────────────────────────────────────────────
 
 describe('destroy', () => {
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.restoreAllMocks();
+  });
 
   it('calls destroy on each stage', () => {
     const pioNodeHelpers = require('pioarduino-node-helpers');

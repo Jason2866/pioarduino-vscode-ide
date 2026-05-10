@@ -8,10 +8,10 @@ import vscode from 'vscode';
 
 jest.mock('vscode', () => jest.requireActual('../../__mocks__/vscode'));
 
-jest.mock('fs-plus', () => ({
-  default: { isFileSync: jest.fn() },
-  isFileSync: jest.fn(),
-}));
+jest.mock('fs-plus', () => {
+  const isFileSync = jest.fn();
+  return { __esModule: true, default: { isFileSync }, isFileSync };
+});
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
