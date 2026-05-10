@@ -1514,11 +1514,10 @@ export function watchClangdCompileCommands(projectDir, onMissing) {
 }
 
 /**
- * Watch the original compile_commands.json files for an IDF project.  Both the
- * CMake-generated file in envDir AND the project-root file produced by PIO/SCons
- * (`pio run -t compiledb`) are watched, because either may be the preferred
- * source for clangd post-processing (root takes precedence — see fixupCompileCommands).
- * Calls onReady() whenever either file is created or changed (e.g. after a build).
+ * Watch the compile_commands.json file for an IDF project.  Only the
+ * project-root file produced by PIO/SCons (`pio run -t compiledb`) is watched,
+ * because it is the preferred source for clangd post-processing.
+ * Calls onReady() whenever the file is created or changed (e.g. after a build).
  */
 export function watchIdfCompileCommands(projectDir, envDir, onReady) {
   disposeIdfCcWatcher(projectDir);
@@ -1596,11 +1595,6 @@ async function isIdfProjectByFilesystem(projectDir, envDir) {
 /**
  * Detect whether the active environment uses ESP-IDF — either as a standalone
  * framework or as the base for Arduino-as-a-component.
- *
- * For these project types the build system (CMake / Ninja) already generates
- * compile_commands.json natively, so pioarduino-vscode-ide must not trigger
- * `pio run --target compiledb`.  Post-processing (fixupCompileCommands) must
- * still run to copy/rewrite the CMake-generated file into .cache/clangd/.
  */
 export async function isIdfProject(observer, envDir) {
   if (!observer) {
@@ -1777,8 +1771,10 @@ export async function ensureClangdConfig(projectDir, observer) {
     parts.push('Diagnostics:\n  Suppress: [pp_expects_filename, unused-includes]');
   }
 
+  // Background indexing of large codebases crashes esp-clangd because
+  // too many burst parallel Cross Compiler calls. Use "Skip" until this is fixed.
   if (useEspFlags && !hasIndexBackground) {
-    parts.push('Index:\n  Background: Build\n  StandardLibrary: true');
+    parts.push('Index:\n  Background: Skip\n  StandardLibrary: true');
   }
 
   let block = parts.join('\n') + (parts.length ? '\n' : '');
