@@ -258,6 +258,9 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
     return; // processed copy exists and no source DB was found
   }
   // No compile_commands.json at all – rebuild from scratch.
+  vscode.window.showInformationMessage(
+    'pioarduino: Build your ESP-IDF project first to generate compile_commands.json for clangd IntelliSense.',
+  );
   observer.rebuildIndex({ force: true });
 }
 
@@ -884,7 +887,6 @@ async function injectArduinoNewlibPlatformInclude(entries, packagesDir) {
 export async function fixupCompileCommands(
   projectDir,
   envDir,
-  { allowRootFallback = true } = {},
 ) {
   if (
     getActiveBackendId() !== 'clangd' ||
@@ -903,9 +905,7 @@ export async function fixupCompileCommands(
   const rootPath = path.join(projectDir, 'compile_commands.json');
   const envPath = envDir ? path.join(envDir, 'compile_commands.json') : undefined;
 
-  const rootStat = allowRootFallback
-    ? await fs.stat(rootPath).catch(() => null)
-    : null;
+  const rootStat = await fs.stat(rootPath).catch(() => null);
   const envStat = envPath ? await fs.stat(envPath).catch(() => null) : null;
   const sourcePath =
     rootStat && (!envStat || rootStat.mtimeMs >= envStat.mtimeMs)
@@ -1524,7 +1524,14 @@ export function watchIdfCompileCommands(projectDir, envDir, onReady) {
   }
   const disposables = [];
 
+  // Guard against double-firing: when both the root and envDir files change
+  // at nearly the same time (e.g. after a full build), only run onReady once.
+  let pending = false;
   const makeHandler = (filePath) => async () => {
+    if (pending) {
+      return;
+    }
+    pending = true;
     try {
       await fs.access(filePath);
       await onReady();
@@ -1533,6 +1540,8 @@ export function watchIdfCompileCommands(projectDir, envDir, onReady) {
       if (err && err.code !== 'ENOENT') {
         console.warn(`IDF compile_commands.json watcher: ${err.message || err}`);
       }
+    } finally {
+      pending = false;
     }
   };
 
