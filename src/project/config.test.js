@@ -2,7 +2,9 @@
  * Unit tests for src/project/config.js
  */
 
+import * as pioNodeHelpers from 'pioarduino-node-helpers';
 import { ProjectConfigLanguageProvider } from './config';
+import { listCoreSerialPorts } from '../utils';
 import vscode from 'vscode';
 
 jest.mock('vscode', () => jest.requireActual('../../__mocks__/vscode'));
@@ -18,15 +20,13 @@ jest.mock('../utils', () => ({
   listCoreSerialPorts: jest.fn(),
 }));
 
-import * as pioNodeHelpers from 'pioarduino-node-helpers';
-import { listCoreSerialPorts } from '../utils';
 
 function makeDocument(lines, uriPath = '/workspace/project/platformio.ini') {
   const fullText = lines.join('\n');
   return {
     uri: vscode.Uri.file(uriPath),
     getText: jest.fn((range) => {
-      if (!range) return fullText;
+      if (!range) {return fullText;}
       const lineStarts = [];
       let offset = 0;
       for (const line of lines) {
@@ -74,6 +74,34 @@ describe('ProjectConfigLanguageProvider', () => {
       const provider = new ProjectConfigLanguageProvider();
       provider.dispose();
       expect(provider._optionsCache.size).toBe(0);
+    });
+  });
+
+  describe('getOptions', () => {
+    it('fetches options from PIO and caches the result', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      const options = [{ name: 'board', scope: 'env' }];
+      pioNodeHelpers.core.getCorePythonCommandOutput.mockResolvedValue(
+        JSON.stringify(options),
+      );
+      const doc = makeDocument(['[env]', 'board = uno']);
+      const result1 = await provider.getOptions(doc);
+      const result2 = await provider.getOptions(doc);
+      expect(result1).toEqual(options);
+      expect(result2).toBe(result1); // same reference — cache hit
+      expect(pioNodeHelpers.core.getCorePythonCommandOutput).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses a separate cache entry per document path', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      pioNodeHelpers.core.getCorePythonCommandOutput.mockResolvedValue(
+        JSON.stringify([]),
+      );
+      const doc1 = makeDocument(['[env]'], '/workspace/proj1/platformio.ini');
+      const doc2 = makeDocument(['[env]'], '/workspace/proj2/platformio.ini');
+      await provider.getOptions(doc1);
+      await provider.getOptions(doc2);
+      expect(pioNodeHelpers.core.getCorePythonCommandOutput).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -191,6 +219,34 @@ describe('ProjectConfigLanguageProvider', () => {
     });
   });
 
+  describe('getOptionAt', () => {
+    it('returns the option whose name matches the key on the current line', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      const options = [
+        { name: 'board', scope: 'env' },
+        { name: 'upload_port', scope: 'env' },
+      ];
+      provider.getOptions = jest.fn().mockResolvedValue(options);
+      const doc = makeDocument(['[env]', 'board = uno']);
+      const pos = new vscode.Position(1, 5);
+      const result = await provider.getOptionAt(doc, pos);
+      expect(result.name).toBe('board');
+    });
+
+    it('walks back past continuation lines to find the option key', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      const options = [{ name: 'lib_deps', scope: 'env' }];
+      provider.getOptions = jest.fn().mockResolvedValue(options);
+      // Line 0: section header, line 1: key, line 2: continuation (starts with space)
+      // getOptionAt loops from position.line down to lineNum > 0, so the key
+      // must be on line >= 1 for the loop to reach it.
+      const doc = makeDocument(['[env]', 'lib_deps =', '  SomeLib']);
+      const pos = new vscode.Position(2, 2);
+      const result = await provider.getOptionAt(doc, pos);
+      expect(result.name).toBe('lib_deps');
+    });
+  });
+
   describe('isOptionValueLocation', () => {
     it('returns true when line starts with space', () => {
       const provider = new ProjectConfigLanguageProvider();
@@ -267,6 +323,17 @@ describe('ProjectConfigLanguageProvider', () => {
       expect(result.contents.value).toContain('registry.platformio.org');
     });
 
+    it('returns registry link for lib_deps with owner/name', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      provider.getOptionAt = jest.fn().mockResolvedValue({ name: 'lib_deps', group: 'lib' });
+      const doc = makeDocument(['[env]', 'lib_deps = knolleary/PubSubClient']);
+      const pos = new vscode.Position(1, 5);
+      const result = await provider.providePackageHover(doc, pos);
+      expect(result).toBeInstanceOf(vscode.Hover);
+      expect(result.contents.value).toContain('libraries');
+      expect(result.contents.value).toContain('knolleary');
+    });
+
     it('returns search link for platform without owner', async () => {
       const provider = new ProjectConfigLanguageProvider();
       provider.getOptionAt = jest.fn().mockResolvedValue({ name: 'platform', group: 'platform' });
@@ -283,6 +350,39 @@ describe('ProjectConfigLanguageProvider', () => {
       const pos = new vscode.Position(1, 0);
       const result = await provider.providePackageHover(doc, pos);
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe('provideCompletionItems', () => {
+    it('returns undefined immediately when cancellation is requested', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      const doc = makeDocument(['[env]', 'board = uno']);
+      const pos = new vscode.Position(1, 0);
+      const token = { isCancellationRequested: true };
+      const result = await provider.provideCompletionItems(doc, pos, token, {});
+      expect(result).toBeUndefined();
+    });
+
+    it('delegates to provideCompletionValues when at a value location', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      provider.isOptionValueLocation = jest.fn().mockReturnValue(true);
+      provider.provideCompletionValues = jest.fn().mockResolvedValue([]);
+      const doc = makeDocument(['[env]', 'board = uno']);
+      const pos = new vscode.Position(1, 8);
+      const token = { isCancellationRequested: false };
+      await provider.provideCompletionItems(doc, pos, token, {});
+      expect(provider.provideCompletionValues).toHaveBeenCalled();
+    });
+
+    it('delegates to provideCompletionOptions when at a key location', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      provider.isOptionValueLocation = jest.fn().mockReturnValue(false);
+      provider.provideCompletionOptions = jest.fn().mockResolvedValue([]);
+      const doc = makeDocument(['[env]', 'board']);
+      const pos = new vscode.Position(1, 3);
+      const token = { isCancellationRequested: false };
+      await provider.provideCompletionItems(doc, pos, token, {});
+      expect(provider.provideCompletionOptions).toHaveBeenCalled();
     });
   });
 
@@ -318,6 +418,49 @@ describe('ProjectConfigLanguageProvider', () => {
       const doc = makeDocument(['; comment', '']);
       const pos = new vscode.Position(1, 0);
       const result = await provider.provideCompletionOptions(doc, pos);
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('provideCompletionValues', () => {
+    it('routes upload_port to provideCompletionPorts', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      provider.getOptionAt = jest.fn().mockResolvedValue({ name: 'upload_port' });
+      provider.provideCompletionPorts = jest.fn().mockResolvedValue([]);
+      const doc = makeDocument(['[env]', 'upload_port = ']);
+      const pos = new vscode.Position(1, 13);
+      await provider.provideCompletionValues(doc, pos);
+      expect(provider.provideCompletionPorts).toHaveBeenCalled();
+    });
+
+    it('routes monitor_speed to provideCompletionBaudrates', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      const option = { name: 'monitor_speed', default: 115200 };
+      provider.getOptionAt = jest.fn().mockResolvedValue(option);
+      provider.provideCompletionBaudrates = jest.fn().mockResolvedValue([]);
+      const doc = makeDocument(['[env]', 'monitor_speed = ']);
+      const pos = new vscode.Position(1, 15);
+      await provider.provideCompletionValues(doc, pos);
+      expect(provider.provideCompletionBaudrates).toHaveBeenCalledWith(option);
+    });
+
+    it('routes other options to provideTypedCompletionValues', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      const option = { name: 'build_type', type: 'choice', choices: ['release', 'debug'], default: 'release' };
+      provider.getOptionAt = jest.fn().mockResolvedValue(option);
+      provider.provideTypedCompletionValues = jest.fn().mockResolvedValue([]);
+      const doc = makeDocument(['[env]', 'build_type = ']);
+      const pos = new vscode.Position(1, 12);
+      await provider.provideCompletionValues(doc, pos);
+      expect(provider.provideTypedCompletionValues).toHaveBeenCalledWith(option);
+    });
+
+    it('returns undefined when no option is found at position', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      provider.getOptionAt = jest.fn().mockResolvedValue(undefined);
+      const doc = makeDocument(['[env]', '']);
+      const pos = new vscode.Position(1, 0);
+      const result = await provider.provideCompletionValues(doc, pos);
       expect(result).toBeUndefined();
     });
   });
@@ -450,7 +593,23 @@ describe('ProjectConfigLanguageProvider', () => {
       expect(result).toBe(true);
     });
 
-    it('maps errors to source file when provided', async () => {
+    it('maps errors to absolute source file path when provided', async () => {
+      const provider = new ProjectConfigLanguageProvider();
+      pioNodeHelpers.core.getCorePythonCommandOutput.mockResolvedValue(
+        JSON.stringify({
+          errors: [{ message: 'Bad value', lineno: 5, source: '/abs/path/extra.ini' }],
+          warnings: [],
+        }),
+      );
+      const uri = vscode.Uri.file('/workspace/project/platformio.ini');
+      await provider.lintConfig(uri);
+      const calls = provider.diagnosticCollection.set.mock.calls;
+      // Should have been called with the absolute source URI
+      const sourceCall = calls.find(([u]) => u.fsPath === '/abs/path/extra.ini');
+      expect(sourceCall).toBeDefined();
+    });
+
+    it('maps errors to relative source file resolved against projectDir', async () => {
       const provider = new ProjectConfigLanguageProvider();
       pioNodeHelpers.core.getCorePythonCommandOutput.mockResolvedValue(
         JSON.stringify({

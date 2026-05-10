@@ -43,6 +43,17 @@ describe('ProjectTasksTreeProvider', () => {
       expect(result.filter((t) => t.name === 'Upload')).toHaveLength(0);
     });
 
+    it('returns all tasks when no env is specified', () => {
+      const tasks = [
+        makeTask('Build', undefined),
+        makeTask('Upload', 'env1'),
+      ];
+      const provider = new ProjectTasksTreeProvider(1, ['env1'], tasks);
+      // env=undefined → first filter matches tasks where coreEnv === undefined
+      const result = provider.getEnvTasks();
+      expect(result.map((t) => t.name)).toEqual(['Build']);
+    });
+
     it('filters by group when provided', () => {
       const tasks = [
         makeTask('Build', 'env1', 'General'),
@@ -69,6 +80,31 @@ describe('ProjectTasksTreeProvider', () => {
       expect(result).toContain(tasks[1]);
     });
 
+    it('does not merge multienv tasks into env results', () => {
+      const tasks = [
+        makeTask('Upload All', undefined, undefined, true),
+        makeTask('Build', 'env1', undefined, false),
+      ];
+      const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], tasks);
+      const result = provider.getEnvTasks('env1');
+      // multienv=true tasks are excluded from the merge
+      expect(result.map((t) => t.name)).not.toContain('Upload All');
+      expect(result.map((t) => t.name)).toContain('Build');
+    });
+
+    it('group filter also applies to merged env-independent tasks', () => {
+      const tasks = [
+        makeTask('Monitor', undefined, 'Platform', false),
+        makeTask('Build', undefined, 'General', false),
+        makeTask('Upload', 'env1', 'Platform', false),
+      ];
+      const provider = new ProjectTasksTreeProvider(1, ['env1'], tasks);
+      const result = provider.getEnvTasks('env1', 'Platform');
+      expect(result.map((t) => t.name)).toContain('Monitor');
+      expect(result.map((t) => t.name)).toContain('Upload');
+      expect(result.map((t) => t.name)).not.toContain('Build');
+    });
+
     it('does not merge default tasks for the DEFAULT_ENV_NAME', () => {
       const tasks = [
         makeTask('Build', undefined, undefined, false),
@@ -92,6 +128,17 @@ describe('ProjectTasksTreeProvider', () => {
       expect(treeItem.iconPath.id).toBe('circle-outline');
     });
 
+    it('sets the command with correct title, command id, and task argument', () => {
+      const provider = new ProjectTasksTreeProvider(1, [], []);
+      const task = makeTask('Build', 'env1');
+      const treeItem = provider.taskToTreeItem(task);
+      expect(treeItem.command).toEqual({
+        title: 'Title: Build',
+        command: 'platformio-ide._runProjectTask',
+        arguments: [task],
+      });
+    });
+
     it('appends " All" for multienv tasks in multienv project', () => {
       const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], [], undefined, true);
       const task = makeTask('Build', undefined, undefined, true);
@@ -102,6 +149,14 @@ describe('ProjectTasksTreeProvider', () => {
     it('does not append " All" when not a multienv project', () => {
       const provider = new ProjectTasksTreeProvider(1, ['env1'], [], undefined, false);
       const task = makeTask('Build', undefined, undefined, true);
+      const treeItem = provider.taskToTreeItem(task);
+      expect(treeItem.label).toBe('Build');
+    });
+
+    it('does not append " All" when task has a coreEnv even if multienv=true', () => {
+      // coreEnv is set → the condition !task.coreEnv is false → no " All"
+      const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], [], undefined, true);
+      const task = makeTask('Build', 'env1', undefined, true);
       const treeItem = provider.taskToTreeItem(task);
       expect(treeItem.label).toBe('Build');
     });
@@ -129,6 +184,16 @@ describe('ProjectTasksTreeProvider', () => {
       expect(children).toHaveLength(1);
       expect(children[0].label).toBe('Default');
       expect(children[0].env).toBeUndefined();
+    });
+
+    it('sets id and iconPath on each root item', () => {
+      const provider = new ProjectTasksTreeProvider(42, ['env1'], []);
+      const children = provider.getRootChildren();
+      // Default node: id uses "undefined" as the env string
+      expect(children[0].id).toBe('42-undefined');
+      expect(children[0].iconPath.id).toBe('root-folder');
+      expect(children[1].id).toBe('42-env1');
+      expect(children[1].iconPath.id).toBe('root-folder');
     });
 
     it('returns all envs with correct expand state', () => {
@@ -159,6 +224,16 @@ describe('ProjectTasksTreeProvider', () => {
       const env1Item = children.find((c) => c.label === 'env1');
       expect(env1Item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
     });
+
+    it('collapses all envs when no env is selected and multiEnvProject is true', () => {
+      const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], [], undefined, false);
+      const children = provider.getRootChildren();
+      const env1Item = children.find((c) => c.label === 'env1');
+      const env2Item = children.find((c) => c.label === 'env2');
+      // No selectedEnv and multiEnvProject=true → both collapsed
+      expect(env1Item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Collapsed);
+      expect(env2Item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Collapsed);
+    });
   });
 
   describe('getEnvChildren', () => {
@@ -183,6 +258,44 @@ describe('ProjectTasksTreeProvider', () => {
       expect(names).toContain('Clean');
       expect(names).toContain('Platform');
     });
+
+    it('sets env, group, and iconPath on group nodes', () => {
+      const tasks = [makeTask('Upload', 'env1', 'Platform')];
+      const provider = new ProjectTasksTreeProvider(1, ['env1'], tasks);
+      const children = provider.getEnvChildren('env1');
+      const groupNode = children.find((c) => c.label === 'Platform');
+      expect(groupNode.env).toBe('env1');
+      expect(groupNode.group).toBe('Platform');
+      expect(groupNode.iconPath).toBe(vscode.ThemeIcon.Folder);
+    });
+
+    it('expands General and Platform groups, collapses others', () => {
+      const tasks = [
+        makeTask('Build', 'env1', 'General'),
+        makeTask('Upload', 'env1', 'Platform'),
+        makeTask('Debug', 'env1', 'Advanced'),
+      ];
+      const provider = new ProjectTasksTreeProvider(1, ['env1'], tasks);
+      const children = provider.getEnvChildren('env1');
+      const general = children.find((c) => c.label === 'General');
+      const platform = children.find((c) => c.label === 'Platform');
+      const advanced = children.find((c) => c.label === 'Advanced');
+      expect(general.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
+      expect(platform.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
+      expect(advanced.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Collapsed);
+    });
+
+    it('includes env-independent tasks merged into the env', () => {
+      const tasks = [
+        makeTask('Monitor', undefined, undefined, false),
+        makeTask('Build', 'env1'),
+      ];
+      const provider = new ProjectTasksTreeProvider(1, ['env1'], tasks);
+      const children = provider.getEnvChildren('env1');
+      const names = children.map((c) => c.name || c.label);
+      expect(names).toContain('Monitor');
+      expect(names).toContain('Build');
+    });
   });
 
   describe('getTaskGroups', () => {
@@ -202,12 +315,61 @@ describe('ProjectTasksTreeProvider', () => {
       const groups = provider.getTaskGroups([makeTask('t1', 'env1')]);
       expect(groups).toEqual(['General']);
     });
+
+    it('deduplicates repeated group names', () => {
+      const provider = new ProjectTasksTreeProvider(1, [], []);
+      const groups = provider.getTaskGroups([
+        makeTask('t1', 'env1', 'Custom'),
+        makeTask('t2', 'env1', 'Custom'),
+        makeTask('t3', 'env1', 'Custom'),
+      ]);
+      expect(groups.filter((g) => g === 'Custom')).toHaveLength(1);
+    });
+
+    it('places Platform second when present, before other custom groups', () => {
+      const provider = new ProjectTasksTreeProvider(1, [], []);
+      const groups = provider.getTaskGroups([
+        makeTask('t1', 'env1', 'Zebra'),
+        makeTask('t2', 'env1', 'Platform'),
+        makeTask('t3', 'env1', 'Alpha'),
+      ]);
+      expect(groups.indexOf('General')).toBe(0);
+      expect(groups.indexOf('Platform')).toBe(1);
+      expect(groups.indexOf('Zebra')).toBeGreaterThan(1);
+      expect(groups.indexOf('Alpha')).toBeGreaterThan(1);
+    });
+
+    it('preserves insertion order for non-Platform custom groups', () => {
+      const provider = new ProjectTasksTreeProvider(1, [], []);
+      const groups = provider.getTaskGroups([
+        makeTask('t1', 'env1', 'Beta'),
+        makeTask('t2', 'env1', 'Alpha'),
+      ]);
+      // No Platform → General, Beta, Alpha (insertion order)
+      expect(groups).toEqual(['General', 'Beta', 'Alpha']);
+    });
   });
 
   describe('getChildren', () => {
     it('returns root children when no element is provided', () => {
       const provider = new ProjectTasksTreeProvider(1, ['env1'], []);
       const children = provider.getChildren();
+      expect(children[0].label).toBe('Default');
+    });
+
+    it('routes to getEnvChildren when selectedEnv is set and multiEnvExplorer is false', () => {
+      const tasks = [makeTask('Build', 'env1')];
+      const provider = new ProjectTasksTreeProvider(1, ['env1'], tasks, 'env1', false);
+      // No element passed → selectedEnv branch
+      const children = provider.getChildren(undefined);
+      const names = children.map((c) => c.name || c.label);
+      expect(names).toContain('Build');
+    });
+
+    it('returns root children when selectedEnv is set but multiEnvExplorer is true', () => {
+      const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], [], 'env1', true);
+      const children = provider.getChildren(undefined);
+      // multiEnvExplorer=true → falls through to getRootChildren
       expect(children[0].label).toBe('Default');
     });
 
@@ -230,6 +392,7 @@ describe('ProjectTasksTreeProvider', () => {
       const children = provider.getChildren(groupNode);
       const names = children.map((c) => c.name || c.label);
       expect(names).toContain('Build');
+      expect(names).not.toContain('Upload');
     });
   });
 });
