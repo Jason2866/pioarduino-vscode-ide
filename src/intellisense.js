@@ -217,47 +217,12 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
     return;
   }
 
-  // ESP-IDF and Arduino-as-component projects rely on CMake / Ninja to produce
-  // compile_commands.json.  Do not trigger `pio run --target compiledb` for
-  // these project types — the build system already owns that file.
-  if (await isIdfProject(observer, envDir)) {
-    const ccPath = envDir ? path.join(envDir, 'compile_commands.json') : null;
-
-    if (!ccPath) {
-      return; // envDir unknown — watcher in manager.js will handle it when build completes
-    }
-
-    let origStat = null;
-    try {
-      origStat = await fs.stat(ccPath);
-    } catch {
-      // File does not exist yet — user must build first.
-      vscode.window.showInformationMessage(
-        'Build your ESP-IDF project first to generate compile_commands.json for clangd IntelliSense. ' +
-          'IntelliSense will activate automatically after the build completes.',
-      );
-      return;
-    }
-
-    // Re-process only when the CMake output is newer than the clangd copy.
-    const clangdPath = path.join(
-      projectDir,
-      '.cache',
-      'clangd',
-      'compile_commands.json',
-    );
-    let clangdStat = null;
-    try {
-      clangdStat = await fs.stat(clangdPath);
-    } catch {
-      // clangd copy missing — process now
-    }
-
-    if (!clangdStat || origStat.mtimeMs > clangdStat.mtimeMs) {
-      await fixupCompileCommands(projectDir, envDir, { allowRootFallback: false });
-    }
-    return;
-  }
+  // For ESP-IDF projects, prefer the SCons-generated root file (created by
+  // `pio run -t compiledb`) over the CMake/Ninja envDir file: only the SCons
+  // version reflects the full set of include paths and flags actually applied
+  // when the source was compiled.  Fall back to the CMake file if the SCons
+  // one is not yet present (first build before compiledb finishes), and fall
+  // through to the rebuild path below if neither exists.
 
   // Check the processed clangd copy first – if it exists we are done.
   const clangdPath = path.join(projectDir, '.cache', 'clangd', 'compile_commands.json');
