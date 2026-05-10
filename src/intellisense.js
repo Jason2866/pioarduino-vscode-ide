@@ -903,24 +903,22 @@ export async function fixupCompileCommands(
   const rootPath = path.join(projectDir, 'compile_commands.json');
   const envPath = envDir ? path.join(envDir, 'compile_commands.json') : undefined;
 
-  let raw;
-  if (allowRootFallback) {
-    try {
-      raw = await fs.readFile(rootPath, 'utf-8');
-    } catch {
-      // not found at root – try envDir
-    }
-  }
-  if (!raw && envPath) {
-    try {
-      raw = await fs.readFile(envPath, 'utf-8');
-    } catch {
-      // not found in envDir either
-    }
-  }
-  if (!raw) {
+  const rootStat = allowRootFallback
+    ? await fs.stat(rootPath).catch(() => null)
+    : null;
+  const envStat = envPath ? await fs.stat(envPath).catch(() => null) : null;
+  const sourcePath =
+    rootStat && (!envStat || rootStat.mtimeMs >= envStat.mtimeMs)
+      ? rootPath
+      : envStat
+        ? envPath
+        : null;
+
+  if (!sourcePath) {
     return;
   }
+
+  const raw = await fs.readFile(sourcePath, 'utf-8');
 
   let entries;
   try {
@@ -1538,15 +1536,24 @@ export function watchIdfCompileCommands(projectDir, envDir, onReady) {
     }
   };
 
-  if (projectDir) {
-    const rootFile = path.join(projectDir, 'compile_commands.json');
-    const rootWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(projectDir, 'compile_commands.json'),
+  const rootFile = path.join(projectDir, 'compile_commands.json');
+  const rootWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(projectDir, 'compile_commands.json'),
+  );
+  const rootHandler = makeHandler(rootFile);
+  rootWatcher.onDidCreate(rootHandler);
+  rootWatcher.onDidChange(rootHandler);
+  disposables.push(rootWatcher);
+
+  if (envDir) {
+    const envFile = path.join(envDir, 'compile_commands.json');
+    const envWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(envDir, 'compile_commands.json'),
     );
-    const rootHandler = makeHandler(rootFile);
-    rootWatcher.onDidCreate(rootHandler);
-    rootWatcher.onDidChange(rootHandler);
-    disposables.push(rootWatcher);
+    const envHandler = makeHandler(envFile);
+    envWatcher.onDidCreate(envHandler);
+    envWatcher.onDidChange(envHandler);
+    disposables.push(envWatcher);
   }
 
   _idfCcWatchers.set(path.normalize(projectDir), {
