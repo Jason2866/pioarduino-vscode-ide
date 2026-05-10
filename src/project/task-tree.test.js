@@ -29,7 +29,7 @@ describe('ProjectTasksTreeProvider', () => {
   });
 
   describe('getEnvTasks', () => {
-    it('returns tasks matching env and merges non-multienv tasks', () => {
+    it('returns tasks matching env without duplicates or cross-env leakage', () => {
       const tasks = [
         makeTask('Build', 'env1'),
         makeTask('Upload', 'env2'),
@@ -37,11 +37,10 @@ describe('ProjectTasksTreeProvider', () => {
       ];
       const provider = new ProjectTasksTreeProvider(1, ['env1', 'env2'], tasks);
       const result = provider.getEnvTasks('env1');
-      // First filter returns env1 tasks; second merge adds all !multienv tasks
-      // (including duplicates of env1 tasks, and even env2 tasks due to missing coreEnv filter)
-      expect(result.filter((t) => t.name === 'Build')).toHaveLength(2);
-      expect(result.filter((t) => t.name === 'Clean')).toHaveLength(2);
-      expect(result.filter((t) => t.name === 'Upload')).toHaveLength(1);
+      // Only env1 tasks are returned; env2 tasks are not leaked; no duplicates
+      expect(result.filter((t) => t.name === 'Build')).toHaveLength(1);
+      expect(result.filter((t) => t.name === 'Clean')).toHaveLength(1);
+      expect(result.filter((t) => t.name === 'Upload')).toHaveLength(0);
     });
 
     it('filters by group when provided', () => {
@@ -53,10 +52,10 @@ describe('ProjectTasksTreeProvider', () => {
       const provider = new ProjectTasksTreeProvider(1, ['env1'], tasks);
       const general = provider.getEnvTasks('env1', 'General');
       const platform = provider.getEnvTasks('env1', 'Platform');
-      // Group filter matches first; merge then duplicates all !multienv tasks
-      expect(general.filter((t) => t.name === 'Build')).toHaveLength(2);
-      expect(general.filter((t) => t.name === 'Clean')).toHaveLength(2);
-      expect(platform.filter((t) => t.name === 'Upload')).toHaveLength(2);
+      // Only tasks matching the requested group and env are returned; no duplicates
+      expect(general.filter((t) => t.name === 'Build')).toHaveLength(1);
+      expect(general.filter((t) => t.name === 'Clean')).toHaveLength(1);
+      expect(platform.filter((t) => t.name === 'Upload')).toHaveLength(1);
     });
 
     it('merges default/env-independent tasks when env is set', () => {

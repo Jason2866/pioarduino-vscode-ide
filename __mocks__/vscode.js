@@ -2,8 +2,6 @@
  * Mock for the vscode module used in unit tests.
  */
 
-const EventEmitter = require('events');
-
 class Position {
   constructor(line, character) {
     this.line = line;
