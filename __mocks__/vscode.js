@@ -12,9 +12,14 @@ class Position {
 }
 
 class Range {
-  constructor(startLine, startChar, endLine, endChar) {
-    this.start = new Position(startLine, startChar);
-    this.end = new Position(endLine, endChar);
+  constructor(a, b, c, d) {
+    if (typeof a === 'object' && typeof b === 'object' && c === undefined) {
+      this.start = a;
+      this.end = b;
+    } else {
+      this.start = new Position(a, b);
+      this.end = new Position(c, d);
+    }
   }
 }
 
@@ -128,6 +133,13 @@ class Hover {
   }
 }
 
+class Location {
+  constructor(uri, range) {
+    this.uri = uri;
+    this.range = range;
+  }
+}
+
 class CompletionItem {
   constructor(label, kind) {
     this.label = label;
@@ -223,6 +235,7 @@ module.exports = {
   Position,
   Range,
   Uri,
+  Location,
   TreeItem,
   ThemeIcon,
   TreeItemCollapsibleState,
