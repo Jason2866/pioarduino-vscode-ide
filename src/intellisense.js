@@ -1522,7 +1522,7 @@ export function watchClangdCompileCommands(projectDir, onMissing) {
  */
 export function watchIdfCompileCommands(projectDir, envDir, onReady) {
   disposeIdfCcWatcher(projectDir);
-  if (!projectDir && !envDir) {
+  if (!projectDir) {
     return;
   }
   const disposables = [];
@@ -1539,17 +1539,6 @@ export function watchIdfCompileCommands(projectDir, envDir, onReady) {
     }
   };
 
-  if (envDir) {
-    const envFile = path.join(envDir, 'compile_commands.json');
-    const envWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(envDir, 'compile_commands.json'),
-    );
-    const envHandler = makeHandler(envFile);
-    envWatcher.onDidCreate(envHandler);
-    envWatcher.onDidChange(envHandler);
-    disposables.push(envWatcher);
-  }
-
   if (projectDir) {
     const rootFile = path.join(projectDir, 'compile_commands.json');
     const rootWatcher = vscode.workspace.createFileSystemWatcher(
@@ -1561,7 +1550,7 @@ export function watchIdfCompileCommands(projectDir, envDir, onReady) {
     disposables.push(rootWatcher);
   }
 
-  _idfCcWatchers.set(path.normalize(projectDir || envDir), {
+  _idfCcWatchers.set(path.normalize(projectDir), {
     dispose() {
       for (const d of disposables) {
         d.dispose();
