@@ -259,7 +259,7 @@ export async function ensureCompileCommands(projectDir, observer, envDir) {
   }
   // No compile_commands.json at all – rebuild from scratch.
   vscode.window.showInformationMessage(
-    'pioarduino: Build your ESP-IDF project first to generate compile_commands.json for clangd IntelliSense.',
+    'pioarduino: Build your project first to generate compile_commands.json for clangd IntelliSense.',
   );
   observer.rebuildIndex({ force: true });
 }
@@ -1512,9 +1512,10 @@ export function watchClangdCompileCommands(projectDir, onMissing) {
 }
 
 /**
- * Watch the compile_commands.json file for an IDF project.  Only the
- * project-root file produced by PIO/SCons (`pio run -t compiledb`) is watched,
- * because it is the preferred source for clangd post-processing.
+ * Watch compile_commands.json files for an IDF project.  Both the project-root
+ * file (produced by PIO/SCons `pio run -t compiledb`) and the envDir file
+ * (produced by CMake/Ninja) are watched, with the root file being the preferred
+ * source for clangd post-processing.
  * Calls onReady() whenever the file is created or changed (e.g. after a build).
  */
 export function watchIdfCompileCommands(projectDir, envDir, onReady) {
