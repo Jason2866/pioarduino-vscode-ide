@@ -29,6 +29,7 @@ export default class ProjectTaskManager {
     this._sid = Math.random();
     this._multienvTaskExplorer = false;
     this._refreshTimeout = undefined;
+    this._reopenSerialMonitorTimeout = undefined;
     this._startedTask = undefined;
     this._tasksToRestore = [];
     this._sbPortSwitcher = undefined;
@@ -43,6 +44,10 @@ export default class ProjectTaskManager {
     if (this._refreshTimeout) {
       clearTimeout(this._refreshTimeout);
       this._refreshTimeout = undefined;
+    }
+    if (this._reopenSerialMonitorTimeout) {
+      clearTimeout(this._reopenSerialMonitorTimeout);
+      this._reopenSerialMonitorTimeout = undefined;
     }
     disposeSubscriptions(this.subscriptions);
   }
@@ -332,8 +337,9 @@ export default class ProjectTaskManager {
       return;
     }
     this._startedTask = undefined;
-    setTimeout(
+    this._reopenSerialMonitorTimeout = setTimeout(
       () => {
+        this._reopenSerialMonitorTimeout = undefined;
         while (this._tasksToRestore.length) {
           vscode.tasks.executeTask(this._tasksToRestore.pop());
         }
