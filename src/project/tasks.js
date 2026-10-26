@@ -23,6 +23,8 @@ export default class ProjectTaskManager {
     this.projectDir = projectDir;
     this.projectObserver = projectObserver;
     this.subscriptions = [];
+    this._disposed = false;
+    this._refreshId = 0;
 
     this._sid = Math.random();
     this._multienvTaskExplorer = false;
@@ -36,26 +38,42 @@ export default class ProjectTaskManager {
   }
 
   dispose() {
+    this._disposed = true;
+    this._refreshId += 1;
+    if (this._refreshTimeout) {
+      clearTimeout(this._refreshTimeout);
+      this._refreshTimeout = undefined;
+    }
     disposeSubscriptions(this.subscriptions);
   }
 
   toggleMultiEnvExplorer() {
+    if (this._disposed) {
+      return;
+    }
     this._multienvTaskExplorer = !this._multienvTaskExplorer;
     this.refresh({ force: true });
   }
 
   requestRefresh() {
+    if (this._disposed) {
+      return;
+    }
     if (this._refreshTimeout) {
       clearTimeout(this._refreshTimeout);
     }
-    this._refreshTimeout = setTimeout(
-      this.refresh.bind(this),
-      ProjectTaskManager.AUTO_REFRESH_DELAY,
-    );
+    this._refreshTimeout = setTimeout(() => {
+      this._refreshTimeout = undefined;
+      this.refresh();
+    }, ProjectTaskManager.AUTO_REFRESH_DELAY);
   }
 
   async refresh({ force = false } = {}) {
-    this.dispose();
+    if (this._disposed) {
+      return;
+    }
+    const refreshId = ++this._refreshId;
+    disposeSubscriptions(this.subscriptions);
 
     if (force) {
       this.projectObserver.resetCache();
@@ -63,11 +81,23 @@ export default class ProjectTaskManager {
     }
 
     const projectEnvs = (await this.projectObserver.getConfig()).envs();
+    if (this._disposed || refreshId !== this._refreshId) {
+      return;
+    }
     const projectTasks = [...(await this.projectObserver.getDefaultTasks())];
+    if (this._disposed || refreshId !== this._refreshId) {
+      return;
+    }
     for (const env of projectEnvs) {
       projectTasks.push(...((await this.projectObserver.getLoadedEnvTasks(env)) || []));
+      if (this._disposed || refreshId !== this._refreshId) {
+        return;
+      }
     }
 
+    if (this._disposed || refreshId !== this._refreshId) {
+      return;
+    }
     const taskViewer = vscode.window.createTreeView(ProjectTaskManager.TASKS_VIEW_ID, {
       treeDataProvider: new ProjectTasksTreeProvider(
         this._sid,
@@ -79,24 +109,28 @@ export default class ProjectTaskManager {
       showCollapseAll: true,
     });
 
-    this.subscriptions.push(
-      taskViewer,
+    this.subscriptions.push(taskViewer);
 
-      // pre-fetch expanded env tasks
+    // pre-fetch expanded env tasks
+    this.subscriptions.push(
       taskViewer.onDidExpandElement(async ({ element }) => {
         if (element.env) {
           await this.onDidRequestEnvTasks(element.env);
         }
       }),
+    );
 
-      // register VSCode Task Provider
+    // register VSCode Task Provider
+    this.subscriptions.push(
       vscode.tasks.registerTaskProvider(ProjectTaskManager.PROVIDER_TYPE, {
         provideTasks: () => projectTasks.map((task) => this.toVSCodeTask(task)),
         resolveTask: () => {
           return undefined;
         },
       }),
+    );
 
+    this.subscriptions.push(
       vscode.tasks.onDidEndTaskProcess((event) => this.onDidEndTaskProcess(event)),
     );
 
@@ -111,7 +145,13 @@ export default class ProjectTaskManager {
   }
 
   async onDidRequestEnvTasks(name) {
+    if (this._disposed) {
+      return;
+    }
     if (await this.projectObserver.getLoadedEnvTasks(name)) {
+      return;
+    }
+    if (this._disposed) {
       return;
     }
     await this.projectObserver.loadEnvTasks(name);
@@ -379,14 +419,24 @@ export default class ProjectTaskManager {
 
     this.subscriptions.push(
       vscode.commands.registerCommand('platformio-ide.build', () => _runTask('Build')),
+    );
+    this.subscriptions.push(
       vscode.commands.registerCommand('platformio-ide.upload', () =>
         _runTask('Upload'),
       ),
+    );
+    this.subscriptions.push(
       vscode.commands.registerCommand('platformio-ide.uploadAndMonitor', () =>
         _runTask('Upload and Monitor'),
       ),
+    );
+    this.subscriptions.push(
       vscode.commands.registerCommand('platformio-ide.clean', () => _runTask('Clean')),
+    );
+    this.subscriptions.push(
       vscode.commands.registerCommand('platformio-ide.test', () => _runTask('Test')),
+    );
+    this.subscriptions.push(
       vscode.commands.registerCommand('platformio-ide.serialMonitor', () =>
         _runTask('Monitor'),
       ),
@@ -403,9 +453,9 @@ export default class ProjectTaskManager {
     this._sbPortSwitcher.tooltip = 'Set upload/monitor/test port';
     this._sbPortSwitcher.command = 'platformio-ide.setProjectPort';
     this.switchPort(this._customPort);
+    this.subscriptions.push(this._sbPortSwitcher);
 
     this.subscriptions.push(
-      this._sbPortSwitcher,
       vscode.commands.registerCommand('platformio-ide.setProjectPort', () =>
         this.pickProjectPort(),
       ),
