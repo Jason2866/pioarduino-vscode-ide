@@ -118,10 +118,8 @@ export default class PIOToolbar {
 
   async onButtonClick(button) {
     for (const cmd of button.commands) {
-      let args = cmd.args || [];
-      if (!Array.isArray(args)) {
-        args = [args];
-      }
+      const rawArgs = cmd.args || [];
+      const args = Array.isArray(rawArgs) ? [...rawArgs] : [rawArgs];
       for (let i = 0; i < args.length; i++) {
         args[i] = await this._expandArgVariables(args[i]);
       }
