@@ -136,10 +136,10 @@ export default class PIOToolbar {
     const matches = arg.match(/\$\{[^\}]+\}/g);
     for (const match of matches) {
       if (match.startsWith('${command:')) {
-        arg = arg.replace(
-          match,
-          await vscode.commands.executeCommand(match.substring(10, match.length - 1)),
+        const value = await vscode.commands.executeCommand(
+          match.substring(10, match.length - 1),
         );
+        arg = arg.replace(match, value ?? '');
       }
     }
     return arg;
