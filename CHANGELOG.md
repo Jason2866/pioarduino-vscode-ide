@@ -4,6 +4,14 @@ All notable changes to the **pioarduino IDE** VSCode extension are documented in
 
 ---
 
+## [1.4.10] - 2026-11-28
+
+### 🐛 Update
+
+- **Update dep pioarduino-vscode-debug** - show RISC-V CSR bit-field definitions in register panel
+
+---
+
 ## [1.4.9] - 2026-11-27
 
 ### ✨ New Features
