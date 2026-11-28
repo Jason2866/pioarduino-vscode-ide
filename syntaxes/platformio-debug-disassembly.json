@@ -32,6 +32,11 @@
             "match": "\\b(x(3[01]|[12]?[0-9])|zero|ra|sp|gp|tp|fp|a[0-7]|s([0-9]|1[01])|t[0-6]|pc|f(3[01]|[12]?[0-9])|f(t([0-9]|1[01])|a[0-7]|s([0-9]|1[01])))\\b"
         },
         {
+            "comment": "RISC-V vector registers and vector CSRs (ESP32-S31 / RVV)",
+            "name": "variable.language",
+            "match": "\\b(v(3[01]|[12]?[0-9])|vstart|vtype|vl|vlenb|vcsr|vxsat|vxrm)\\b"
+        },
+        {
             "comment": "Symbol reference in disassembly (e.g. <function+0x10> or <printf@plt>)",
             "name": "entity.name.function",
             "match": "<[-\\w.$:@]+(?:\\+(?:0x[0-9a-fA-F]+|\\d+))?>"
