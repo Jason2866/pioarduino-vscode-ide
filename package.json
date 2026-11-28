@@ -1,6 +1,6 @@
 {
   "name": "pioarduino-ide",
-  "version": "1.4.9",
+  "version": "1.4.10",
   "icon": "assets/images/pioarduino-128x128.png",
   "publisher": "pioarduino",
   "engines": {
@@ -33,6 +33,7 @@
     "esp32-p4",
     "esp32-h2",
     "esp32-h4",
+    "esp32-s31",
     "espidf",
     "arduino",
     "pio",
@@ -1087,7 +1088,7 @@
   "dependencies": {
     "fs-plus": "~3.1.1",
     "pioarduino-node-helpers": "~12.7.1",
-    "pioarduino-vscode-debug": "~1.2.0",
+    "pioarduino-vscode-debug": "~1.2.1",
     "tar": "^7.5.22"
   },
   "devDependencies": {
